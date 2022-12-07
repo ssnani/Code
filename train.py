@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 import pytorch_lightning as pl
 from pytorch_lightning.profiler import SimpleProfiler
@@ -19,7 +19,7 @@ from debug import dbg_print
 from callbacks import Losscallbacks
 
 class DCCRN_model(pl.LightningModule):
-	def __init__(self, bidirectional, batch_size=32):
+	def __init__(self, bidirectional, train_dataset: Dataset, val_dataset: Dataset, batch_size=32):
 		super().__init__()
 		pl.seed_everything(77)
 
@@ -27,6 +27,17 @@ class DCCRN_model(pl.LightningModule):
 		self.loss = LossFunction()
 
 		self.batch_size = batch_size
+		self.num_workers = 4
+		self.train_dataset = train_dataset
+		self.val_dataset = val_dataset
+
+	def train_dataloader(self):
+		return DataLoader(self.train_dataset, batch_size = self.batch_size, 
+							 num_workers=self.num_workers, pin_memory=True, drop_last=True)
+
+	def val_dataloader(self):		
+		return DataLoader(self.val_dataset, batch_size = self.batch_size, 
+							 num_workers=self.num_workers, pin_memory=True, drop_last=True)
 
 	def configure_optimizers(self):
 		_optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3, amsgrad=True)
@@ -90,18 +101,18 @@ def main(args):
 	#scenario = args.scenario
 	#Loading datasets
 	dataset_file = args.dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
-	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, 0)]) #
-	train_loader = DataLoader(train_dataset, batch_size = args.batch_size, 
-							 num_workers=0, pin_memory=True, drop_last=True)
+	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)]) #
+	#train_loader = DataLoader(train_dataset, batch_size = args.batch_size, 
+	#						 num_workers=0, pin_memory=True, drop_last=True)
 
 	val_dataset_file = args.val_dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
-	dev_dataset = MovingSourceDataset(val_dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, 0)])
-	val_loader = DataLoader(dev_dataset, batch_size = args.batch_size, 
-							num_workers=0, pin_memory=True, drop_last=True)
+	dev_dataset = MovingSourceDataset(val_dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)])
+	#val_loader = DataLoader(dev_dataset, batch_size = args.batch_size, 
+	#						num_workers=0, pin_memory=True, drop_last=True)
 
 	# model
 	bidirectional = args.bidirectional
-	model = DCCRN_model(bidirectional)
+	model = DCCRN_model(bidirectional, train_dataset, dev_dataset, args.batch_size)
 
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=args.ckpt_dir, version=args.exp_name)
 	checkpoint_callback = ModelCheckpoint(dirpath=args.ckpt_dir, save_last = True, save_top_k=1, monitor='val_loss')
@@ -115,16 +126,16 @@ def main(args):
 					max_epochs = args.max_n_epochs,
 					callbacks=[checkpoint_callback, model_summary, lr_monitor, Losscallbacks()], #early_stopping], #, 
 					logger=tb_logger,
-					strategy="ddp",
+					#strategy="ddp",
 					check_val_every_n_epoch=1,
 					log_every_n_steps = 1,
 					num_sanity_val_steps=-1,
 					profiler="simple",
-					fast_dev_run=True,
-					auto_scale_batch_size=True)
+					fast_dev_run=True)
+					#auto_scale_batch_size=True)
 	
-	trainer.tune(model)
-	print(f'Max batch size fit on memory: {model.batch_size}\n')
+	#trainer.tune(model)
+	#print(f'Max batch size fit on memory: {model.batch_size}\n')
 				
 	msg = f"Train Config: bidirectional: {bidirectional}, T: {T}, dataset_file: {dataset_file}, \
 		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {args.ckpt_dir} \n"
@@ -133,9 +144,9 @@ def main(args):
 
 	print(msg)
 	if os.path.exists(args.resume_model):
-		trainer.fit(model, train_loader, val_loader, ckpt_path=args.resume_model)
+		trainer.fit(model, ckpt_path=args.resume_model) #train_loader, val_loader,
 	else:
-		trainer.fit(model, train_loader, val_loader)
+		trainer.fit(model)#, train_loader, val_loader)
 
 
 def test(args):
@@ -143,7 +154,7 @@ def test(args):
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
 	dataset_file = args.dataset_file
-	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size =1, transforms=[ NetworkInput(320, 160, 0)]) #
+	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size =1, transforms=[ NetworkInput(320, 160, ref_mic_idx)]) #
 	test_loader = DataLoader(test_dataset, batch_size = args.batch_size, num_workers=0, pin_memory=True, drop_last=True)  
 
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=args.ckpt_dir, version=args.exp_name)

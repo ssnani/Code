@@ -6,8 +6,6 @@ import soundfile
 import torch
 import torchaudio
 from torch.utils.data import Dataset, DataLoader
-
-import gpuRIR
 import random
 from collections import namedtuple
 from utils import Parameter
@@ -19,6 +17,12 @@ from controlled_config import ControlledConfig
 from rir_interface import taslp_RIR_Interface
 from array_setup import array_setup_10cm_2mic
 from locata_utils import cart2sph
+
+
+GPU_RIR_IMPLEMENTATION = False
+
+if GPU_RIR_IMPLEMENTATION:
+	import gpuRIR
 
 class NetworkInput(object):
 	def __init__(self, frame_len, frame_shift, ref_mic_idx=0):
@@ -77,6 +81,7 @@ class MovingSourceDataset(Dataset):
 		self.size = size
 
 		self.rir_interface = taslp_RIR_Interface() 
+		self.T = 4 
 
 	def __len__(self):
 		return len(self.tr_ex_list) if self.size is None else self.size
@@ -103,8 +108,12 @@ class MovingSourceDataset(Dataset):
 		noi_len = noi.shape[1]
 
 		dbg_print(f'sph: {sph_len}, noi: {noi_len}')
-		assert sph_len > 16000*4       #TODO: tempchange to 4 sec
-		sph_len = 16000*4
+		#assert sph_len > 16000*4       #TODO: tempchange to 4 sec
+		if sph_len < self.fs*self.T:
+			sph = torch.cat((sph, torch.zeros(1, self.fs*self.T - sph_len)), dim=1)
+
+		
+		sph_len = self.fs*self.T
 		sph = sph[:,:sph_len]
 
 		if sph_len < noi_len:
@@ -161,18 +170,26 @@ class MovingSourceDataset(Dataset):
 		noi_azimuth_keys = np.round(np.where(noi_azimuth<0, 360+noi_azimuth, noi_azimuth)).astype('int32')	
 		noise_rirs, _ = self.rir_interface.get_rirs(t60=T60, idx_list=list(noi_azimuth_keys))
 
-		sph_reverb = self.simulate_source(sph[0].numpy(), source_rirs, src_timestamps, t)
-		sph_dp = self.simulate_source(sph[0].numpy(), dp_source_rirs, src_timestamps, t)
-		noi_reverb = self.simulate_source(noi[0].numpy(), noise_rirs, noise_timestamps, t)
+		if GPU_RIR_IMPLEMENTATION:
+			sph_reverb = self.simulate_source_gpuRIR(sph[0].numpy(), source_rirs, src_timestamps, t)
+			sph_dp = self.simulate_source_gpuRIR(sph[0].numpy(), dp_source_rirs, src_timestamps, t)
+			noi_reverb = self.simulate_source_gpuRIR(noi[0].numpy(), noise_rirs, noise_timestamps, t)
 
-		mic_signals, dp_signals = self.adjust_to_snr( sph_reverb, sph_dp, noi_reverb, SNR)
+			mic_signals, dp_signals = self.adjust_to_snr_gpuRIR( sph_reverb, sph_dp, noi_reverb, SNR)
+
+			mic_signals = torch.from_numpy(mic_signals.T)
+			dp_signals = torch.from_numpy(dp_signals.T)
+			#noise_reverb = torch.from_numpy(noise_reverb.T)
+		else:
+			sph_reverb = self.simulate_source(sph, torch.from_numpy(source_rirs), src_timestamps, t)
+			sph_dp = self.simulate_source(sph, torch.from_numpy(dp_source_rirs), src_timestamps, t)
+			noi_reverb = self.simulate_source(noi, torch.from_numpy(noise_rirs), noise_timestamps, t)
+
+			mic_signals, dp_signals = self.adjust_to_snr( sph_reverb, sph_dp, noi_reverb, SNR)
+
+
 
 		DOA = cart2sph(src_trajectory - array_pos)  #[:,1:3], 
-		
-		mic_signals = torch.from_numpy(mic_signals.T)
-		dp_signals = torch.from_numpy(dp_signals.T)
-		#noise_reverb = torch.from_numpy(noise_reverb.T)
-
 
 		if self.transforms is not None:
 			for t in self.transforms:
@@ -192,13 +209,51 @@ class MovingSourceDataset(Dataset):
 
 		return timestamps, t, trajectory
 
-	def simulate_source(self, signal, RIRs, timestamps, t):
-		breakpoint()
+	def simulate_source_gpuRIR(self, signal, RIRs, timestamps, t):	
 		reverb_signals = gpuRIR.simulateTrajectory(signal, RIRs, timestamps=timestamps, fs=self.fs)
 		reverb_signals = reverb_signals[0:len(t),:]
 		return reverb_signals
 
-	def adjust_to_snr(self, mic_signals, dp_signals, noise_reverb, SNR):
+	def simulate_source(self, signal, RIRs, timestamps, t):
+		# signal: tensor( 1, sig_len), RIRs: (nb_points, num_ch, rir_len)
+		# reverb_signals : tensor( num_ch, sig_len)
+		reverb_signals = self.simulateTrajectory(signal, RIRs, timestamps=timestamps, fs=self.fs) #torch.from_numpy(signal).unsqueeze(dim=0)
+		reverb_signals = reverb_signals[:,0:len(t)]
+		return reverb_signals
+
+	def conv(self, signal, RIR):
+		# signal: tensor( 1, sig_len), rir: (num_ch, rir_len)
+		pad_signal = torch.nn.functional.pad(signal, (RIR.shape[1]-1, RIR.shape[1]-1))
+		flip_rir = torch.flip(RIR, [1])
+		reverb_signal = torch.nn.functional.conv1d(pad_signal.unsqueeze(dim=1), flip_rir.unsqueeze(dim=1))
+		reverb_signal = reverb_signal.squeeze(dim=0)
+		return reverb_signal	
+
+	def get_seg(self, signal, timestamps):
+		blk_len = signal.shape[-1] if len(timestamps)==1 else int(timestamps[1]*self.fs)
+		seg_sig = torch.nn.functional.unfold(signal.unsqueeze(dim=1).unsqueeze(dim=1), kernel_size=(1, blk_len), padding=(0,0), stride=(1, blk_len))
+		seg_sig = torch.permute(seg_sig.squeeze(dim=0),[1,0])   #(num_seg, blk_len)
+
+		return seg_sig
+
+	def simulateTrajectory(self, signal, RIRs, timestamps, fs):
+		#RIRs: (nb_points, num_ch, rir_len)
+		
+		(nb_points, num_ch, rir_len) = RIRs.shape
+		nSamples = signal.shape[-1]
+		w_ini = np.append((timestamps*fs).astype(int), nSamples)
+
+		seg_signal = self.get_seg(signal, timestamps)
+
+		reverb_signal = torch.zeros(num_ch, nSamples+rir_len-1)
+
+		for seg_idx in range(nb_points):
+			reverb_seg = self.conv(seg_signal[[seg_idx],:], RIRs[seg_idx,:,:])
+			reverb_signal[:,w_ini[seg_idx] : w_ini[seg_idx+1]+rir_len-1] += reverb_seg
+
+		return reverb_signal
+
+	def adjust_to_snr_gpuRIR(self, mic_signals, dp_signals, noise_reverb, SNR):
 		scale_noi = np.sqrt(np.sum(mic_signals[:,0]**2) / (np.sum(noise_reverb[:,0]**2) * (10**(SNR/10))))
 		mic_signals = mic_signals + noise_reverb * scale_noi
 
@@ -212,15 +267,29 @@ class MovingSourceDataset(Dataset):
 
 		return mic_signals, dp_signals
 
+	def adjust_to_snr(self, mic_signals, dp_signals, noise_reverb, SNR):
+		# mic_signals: tensor(num_ch, sig_len)
+		scale_noi = torch.sqrt(torch.sum(mic_signals[0,:]**2) / (torch.sum(noise_reverb[0,:]**2) * (10**(SNR/10))))
+		mic_signals = mic_signals + noise_reverb * scale_noi
+
+		# normalize the root mean square of the mixture to a constant
+		sph_len = mic_signals.shape[1]   #*mic_signals.shape[1]          #All mics
+
+		c = 1.0 * torch.sqrt(sph_len / (torch.sum(mic_signals[0,:]**2) + 1e-8))
+
+		mic_signals *= c
+		dp_signals *= c
+
+		return mic_signals, dp_signals
 
 if __name__=="__main__":
 
 	logs_dir = '../signals/'
 	snr = -5
 	t60 = 0.2
-	scenario = 'static' #'motion' 
+	scenario = 'motion' #'static' #
 	dataset_file = f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt' # 'dataset_file_10sec.txt'
-	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size =5, transforms=None) #[NetworkInput(320, 160, 0)]) #
+	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size =1, transforms=None) #[NetworkInput(320, 160, 0)]) #
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
 	for _batch_idx, val in enumerate(train_loader):
@@ -228,7 +297,7 @@ if __name__=="__main__":
 		        tgt_sig: {val[1].shape}, {val[1].dtype}, {val[1].device} \
 				doa: {val[2].shape}, {val[2].dtype}, {val[2].device} \n")
 
-		#torchaudio.save(f'{logs_dir}sig_{scenario}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
-		#torchaudio.save(f'{logs_dir}tgt_{scenario}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)
+		torchaudio.save(f'{logs_dir}sig_{scenario}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
+		torchaudio.save(f'{logs_dir}tgt_{scenario}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)
 
 		#break

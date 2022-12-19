@@ -55,6 +55,10 @@ parser.add_argument('--ref_mic_idx',
                     default=0,
                     help='ref mic idx 0 or 1') 
 
+parser.add_argument('--num_workers',
+                    type=int,
+                    default=4,
+                    help='Dataloader num_workers') 
 
 parser.add_argument('--dataset_file',
                     type=str,

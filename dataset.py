@@ -17,6 +17,7 @@ from controlled_config import ControlledConfig
 from rir_interface import taslp_RIR_Interface
 from array_setup import array_setup_10cm_2mic
 from locata_utils import cart2sph
+from scipy.signal import fftconvolve
 
 
 GPU_RIR_IMPLEMENTATION = False
@@ -75,7 +76,7 @@ class MovingSourceDataset(Dataset):
 			self.tr_ex_list = [line.strip() for line in f.readlines()]
 
 		self.fs = 16000
-		self.resample = torchaudio.transforms.Resample(new_freq = self.fs)
+
 		self.array_setup = array_setup
 		self.transforms = transforms if transforms is not None else None
 		self.size = size
@@ -96,10 +97,10 @@ class MovingSourceDataset(Dataset):
 
 		dbg_print(cfg)
 		if self.fs != fs_noi:
-			noi = torch.resample(noi)
+			noi = torchaudio.functional.resample(noi, fs_noi, self.fs)	
 
 		if self.fs != fs:
-			sph = torch.resample(sph)
+			sph = torchaudio.functional.resample(sph, fs, self.fs)	
 
 		#truncating to 10 sec utterances
 		
@@ -181,9 +182,9 @@ class MovingSourceDataset(Dataset):
 			dp_signals = torch.from_numpy(dp_signals.T)
 			#noise_reverb = torch.from_numpy(noise_reverb.T)
 		else:
-			sph_reverb = self.simulate_source(sph, torch.from_numpy(source_rirs), src_timestamps, t)
-			sph_dp = self.simulate_source(sph, torch.from_numpy(dp_source_rirs), src_timestamps, t)
-			noi_reverb = self.simulate_source(noi, torch.from_numpy(noise_rirs), noise_timestamps, t)
+			sph_reverb = self.simulate_source(sph, source_rirs, src_timestamps, t) #torch.from_numpy(source_rirs)
+			sph_dp = self.simulate_source(sph, dp_source_rirs, src_timestamps, t)
+			noi_reverb = self.simulate_source(noi, noise_rirs, noise_timestamps, t)
 
 			mic_signals, dp_signals = self.adjust_to_snr( sph_reverb, sph_dp, noi_reverb, SNR)
 
@@ -215,7 +216,8 @@ class MovingSourceDataset(Dataset):
 		return reverb_signals
 
 	def simulate_source(self, signal, RIRs, timestamps, t):
-		# signal: tensor( 1, sig_len), RIRs: (nb_points, num_ch, rir_len)
+		# signal: tensor( 1, sig_len), 
+		# RIRs: numpy (nb_points, num_ch, rir_len)
 		# reverb_signals : tensor( num_ch, sig_len)
 		reverb_signals = self.simulateTrajectory(signal, RIRs, timestamps=timestamps, fs=self.fs) #torch.from_numpy(signal).unsqueeze(dim=0)
 		reverb_signals = reverb_signals[:,0:len(t)]
@@ -229,6 +231,15 @@ class MovingSourceDataset(Dataset):
 		reverb_signal = reverb_signal.squeeze(dim=0)
 		return reverb_signal	
 
+	
+	def fftconv(self, signal, RIR):
+		# Numpy implementation
+		# signal: ( 1, sig_len), rir: (num_ch, rir_len)
+		
+		reverb_signal = fftconvolve(signal, RIR, mode='full')
+		return reverb_signal
+
+
 	def get_seg(self, signal, timestamps):
 		blk_len = signal.shape[-1] if len(timestamps)==1 else int(timestamps[1]*self.fs)
 		seg_sig = torch.nn.functional.unfold(signal.unsqueeze(dim=1).unsqueeze(dim=1), kernel_size=(1, blk_len), padding=(0,0), stride=(1, blk_len))
@@ -237,7 +248,8 @@ class MovingSourceDataset(Dataset):
 		return seg_sig
 
 	def simulateTrajectory(self, signal, RIRs, timestamps, fs):
-		#RIRs: (nb_points, num_ch, rir_len)
+		#signal: tensor( 1, sig_len)
+		#RIRs: numpy (nb_points, num_ch, rir_len)
 		
 		(nb_points, num_ch, rir_len) = RIRs.shape
 		nSamples = signal.shape[-1]
@@ -248,7 +260,10 @@ class MovingSourceDataset(Dataset):
 		reverb_signal = torch.zeros(num_ch, nSamples+rir_len-1)
 
 		for seg_idx in range(nb_points):
-			reverb_seg = self.conv(seg_signal[[seg_idx],:], RIRs[seg_idx,:,:])
+			#reverb_seg = self.conv(seg_signal[[seg_idx],:], RIRs[seg_idx,:,:])
+			
+			reverb_seg = torch.from_numpy(self.fftconv(seg_signal[[seg_idx],:].numpy(), RIRs[seg_idx,:,:]))
+
 			reverb_signal[:,w_ini[seg_idx] : w_ini[seg_idx+1]+rir_len-1] += reverb_seg
 
 		return reverb_signal

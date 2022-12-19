@@ -135,6 +135,19 @@ def gcc_phat(sig: "shape: (2,*)", local_mic_pos, local_mic_center, src_mic_dist,
 
 
 
+def gcc_phat_v2(sig: "shape: (2,*)", local_mic_pos, local_mic_center, src_mic_dist, weighted, is_euclidean_dist, sig_vad):
+    nfft=320
+    fs, c, freq_bins = 16000, 343, np.arange(1, nfft//2) 
+
+    X = torch.stft(sig, nfft, nfft // 2, nfft, torch.hamming_window(nfft), return_complex=True, center = False)
+    #X = X[:,1:,:] # removing the dc component
+    X = torch.permute(X, [0,2,1])
+
+    f_doa, f_vals, utt_doa, utt_sum, delays = gcc_phat_loc_orient(X, torch.abs(X), fs, nfft, local_mic_pos, local_mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist)
+    
+    return utt_doa, utt_sum, f_doa, f_vals, sig_vad, delays
+    
+
 def compute_vad_speech_brain(sig, frame_size: 'int (samples) ', frame_shift: 'int (samples)', fs: int = 16000):
     from speechbrain.pretrained import VAD
     VAD = VAD.from_hparams(source="speechbrain/vad-crdnn-libriparty", savedir="pretrained_models/vad-crdnn-libriparty")

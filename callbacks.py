@@ -7,7 +7,7 @@ from pytorch_lightning.utilities.types import STEP_OUTPUT
 
 from typing import Any, Optional
 
-from metrics import eval_metrics_batch, _mag_spec_mask, gettdsignal_mag_spec_mask
+from metrics import eval_metrics_batch_v1, _mag_spec_mask, gettdsignal_mag_spec_mask
 
 class Losscallbacks(Callback):
     def __init__(self):
@@ -50,7 +50,7 @@ class Losscallbacks(Callback):
         #torchaudio.save(f'tgt_{batch_idx}.wav', (tgt_sig/torch.max(torch.abs(tgt_sig))).cpu(), sample_rate=16000)
         #torchaudio.save(f'est_{batch_idx}.wav', (est_sig/torch.max(torch.abs(est_sig))).cpu(), sample_rate=16000)
 
-        mix_metrics = eval_metrics_batch(tgt_sig.cpu().numpy(), mix_sig.cpu().numpy())
+        mix_metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), mix_sig.cpu().numpy())
         self.log("MIX_SNR", mix_metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("MIX_STOI", mix_metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("MIX_ESTOI", mix_metrics['e_stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -58,14 +58,12 @@ class Losscallbacks(Callback):
         self.log("MIX_PESQ_WB", mix_metrics['pesq_wb'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
 
-        _metrics = eval_metrics_batch(tgt_sig.cpu().numpy(), est_sig.cpu().numpy())
+        _metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), est_sig.cpu().numpy())
         self.log("SNR", _metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("STOI", _metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ESTOI", _metrics['e_stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("PESQ_NB", _metrics['pesq_nb'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("PESQ_WB", _metrics['pesq_wb'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-
-        
 
         return
 
@@ -96,7 +94,8 @@ class Losscallbacks(Callback):
 
         _est_ri_spec = torch.permute(est_ri_spec,[0,3,2,1])
         est_sig = torch.istft(_est_ri_spec, 320,160,320,torch.hamming_window(320).type_as(_est_ri_spec))
-
+        
+        print(f"mix val batch idx: {batch_idx} \n")
         mix_metrics = eval_metrics_batch(tgt_sig.cpu().numpy(), mix_sig.cpu().numpy())
         self.log("MIX_SNR", mix_metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("MIX_STOI", mix_metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -104,7 +103,7 @@ class Losscallbacks(Callback):
         self.log("MIX_PESQ_NB", mix_metrics['pesq_nb'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("MIX_PESQ_WB", mix_metrics['pesq_wb'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-
+        print(f"est val batch idx: {batch_idx} \n")
         _metrics = eval_metrics_batch(tgt_sig.cpu().numpy(), est_sig.cpu().numpy())
         self.log("SNR", _metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("STOI", _metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True)

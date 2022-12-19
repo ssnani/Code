@@ -19,7 +19,7 @@ from debug import dbg_print
 from callbacks import Losscallbacks
 
 class DCCRN_model(pl.LightningModule):
-	def __init__(self, bidirectional, train_dataset: Dataset, val_dataset: Dataset, batch_size=32):
+	def __init__(self, bidirectional, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4):
 		super().__init__()
 		pl.seed_everything(77)
 
@@ -27,7 +27,7 @@ class DCCRN_model(pl.LightningModule):
 		self.loss = LossFunction()
 
 		self.batch_size = batch_size
-		self.num_workers = 4
+		self.num_workers = num_workers
 		self.train_dataset = train_dataset
 		self.val_dataset = val_dataset
 
@@ -112,10 +112,15 @@ def main(args):
 
 	# model
 	bidirectional = args.bidirectional
-	model = DCCRN_model(bidirectional, train_dataset, dev_dataset, args.batch_size)
+	model = DCCRN_model(bidirectional, train_dataset, dev_dataset, args.batch_size, args.num_workers)
 
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=args.ckpt_dir, version=args.exp_name)
 	checkpoint_callback = ModelCheckpoint(dirpath=args.ckpt_dir, save_last = True, save_top_k=1, monitor='val_loss')
+	pesq_checkpoint_callback = ModelCheckpoint(dirpath=args.ckpt_dir, filename='{epoch}-{PESQ_NB:.2f}--{val_loss:.2f}-{STOI:.2f}', save_last = True, save_top_k=1, monitor='PESQ_NB')
+	pesq_checkpoint_callback.CHECKPOINT_NAME_LAST = "pesq-nb-last"
+	stoi_checkpoint_callback = ModelCheckpoint(dirpath=args.ckpt_dir, filename='{epoch}-{STOI:.2f}-{val_loss:.2f}-{PESQ_NB:.2f}', save_last = True, save_top_k=1, monitor='STOI')
+	stoi_checkpoint_callback.CHECKPOINT_NAME_LAST = "stoi-last"
+
 	model_summary = ModelSummary(max_depth=1)
 	early_stopping = EarlyStopping('val_loss', patience=5)
 	lr_monitor = LearningRateMonitor(logging_interval='step')
@@ -124,15 +129,15 @@ def main(args):
 	# training
 	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=16,
 					max_epochs = args.max_n_epochs,
-					callbacks=[checkpoint_callback, model_summary, lr_monitor, Losscallbacks()], #early_stopping], #, 
+					callbacks=[checkpoint_callback, model_summary, lr_monitor], #early_stopping], # pesq_checkpoint_callback, stoi_checkpoint_callback, , Losscallbacks()]
 					logger=tb_logger,
-					#strategy="ddp",
+					strategy="ddp",
 					check_val_every_n_epoch=1,
 					log_every_n_steps = 1,
 					num_sanity_val_steps=-1,
 					profiler="simple",
-					fast_dev_run=True)
-					#auto_scale_batch_size=True)
+					fast_dev_run=False,
+					auto_scale_batch_size=False)
 	
 	#trainer.tune(model)
 	#print(f'Max batch size fit on memory: {model.batch_size}\n')
@@ -143,8 +148,8 @@ def main(args):
 	trainer.logger.experiment.add_text("Exp details", msg)
 
 	print(msg)
-	if os.path.exists(args.resume_model):
-		trainer.fit(model, ckpt_path=args.resume_model) #train_loader, val_loader,
+	if os.path.exists(os.path.join(args.ckpt_dir,args.resume_model)):
+		trainer.fit(model, ckpt_path=os.path.join(args.ckpt_dir,args.resume_model)) #train_loader, val_loader,
 	else:
 		trainer.fit(model)#, train_loader, val_loader)
 
@@ -154,8 +159,10 @@ def test(args):
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
 	dataset_file = args.dataset_file
-	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size =1, transforms=[ NetworkInput(320, 160, ref_mic_idx)]) #
-	test_loader = DataLoader(test_dataset, batch_size = args.batch_size, num_workers=0, pin_memory=True, drop_last=True)  
+	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, #size=1,
+									transforms=[ NetworkInput(320, 160, ref_mic_idx)]) #
+	test_loader = DataLoader(test_dataset, batch_size = args.batch_size, num_workers=args.num_workers
+							, pin_memory=True, drop_last=True)  
 
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=args.ckpt_dir, version=args.exp_name)
 
@@ -173,8 +180,12 @@ def test(args):
 
 	print(msg)
 
-	model = DCCRN_model.load_from_checkpoint(args.model_path, bidirectional=bidirectional)
-	trainer.test(model, dataloaders=test_loader)
+	if os.path.exists(os.path.join(args.ckpt_dir, args.model_path)):
+		model = DCCRN_model.load_from_checkpoint(os.path.join(args.ckpt_dir, args.model_path), bidirectional=bidirectional, 
+		        								train_dataset=None, val_dataset=None)
+		trainer.test(model, dataloaders=test_loader)
+	else:
+		print(f"Model path not found in {args.ckpt_dir}")
 
 if __name__=="__main__":
 	#flags

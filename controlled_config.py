@@ -237,7 +237,7 @@ if __name__=="__main__":
 
 		#breakpoint()
 		scratch_dir='/scratch/bbje/battula12/Controlled_Experimets/'
-		pp_str = f'{scratch_dir}val_configs/{scenario}/snr_{snr}_t60_{t60}/src_mic_dist_{src_mic_dist}_noi_mic_dist_{noi_mic_dist}/'
+		pp_str = f'{scratch_dir}test_configs/{scenario}/snr_{snr}_t60_{t60}/src_mic_dist_{src_mic_dist}_noi_mic_dist_{noi_mic_dist}/'
 
 		os.makedirs(pp_str, exist_ok=True)
 		#breakpoint()

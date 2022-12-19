@@ -200,11 +200,18 @@ class Net(nn.Module):
         return out
 
 def test_model(bidirectional):
-    feat = torch.randn(2, 4, 200, 161)
+    feat = torch.randn(128, 4, 200, 161)
     net = Net(bidirectional)
     #print('n_params: {}'.format(numParams(net)))
+    #breakpoint()
+    feat = feat.to('cuda:0')
+    net = net.to('cuda:0')
+    import time
+    start = time.time()
     est = net(feat)
-    print('{} -> {}'.format(feat.shape, est.shape))
+    end = time.time() - start 
+    print('Time for {} -> {} is {} sec'.format(feat.shape, est.shape, end))
+
 
 
 if __name__=="__main__":

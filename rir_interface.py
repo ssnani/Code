@@ -59,6 +59,6 @@ class taslp_RIR_Interface():
 
 if __name__=="__main__":
     rir_interface = taslp_RIR_Interface()
-    rirs, dp_rirs = rir_interface.get_rirs(t60=0.2, idx_list=[4])
+    rirs, dp_rirs = rir_interface.get_rirs(t60=0.0, idx_list=[4])
     breakpoint()
     print(rirs.shape)

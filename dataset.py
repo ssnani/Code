@@ -21,6 +21,8 @@ from scipy.signal import fftconvolve
 
 
 GPU_RIR_IMPLEMENTATION = False
+dataset_conditions = ["ideal", "noisy", "reverb", "noisy_reverb"]
+dataset_dtypes = ["stationary", "moving"]
 
 if GPU_RIR_IMPLEMENTATION:
 	import gpuRIR
@@ -65,13 +67,13 @@ class NetworkInput(object):
 		dbg_print(f"Transform inp: {ip_feat.shape} tgt: {tgt_feat.shape},  doa:{doa_frm.shape}")
 		return ip_feat, tgt_feat, doa_frm  
 
-
 class MovingSourceDataset(Dataset):
 
 	# Currently supported for > 10 sec utterances
 
-	def __init__(self, dataset_info_file, array_setup, transforms: list =None, size=None):
-		
+	def __init__(self, dataset_info_file, array_setup, transforms: list =None, size=None, T60=None, SNR=None, dataset_dtype=None, dataset_condition=None):
+		# T60, SNR : if provided during initialization is ONLY considered for training and NOT from config file
+ 
 		with open(dataset_info_file, 'r') as f:
 			self.tr_ex_list = [line.strip() for line in f.readlines()]
 
@@ -83,6 +85,10 @@ class MovingSourceDataset(Dataset):
 
 		self.rir_interface = taslp_RIR_Interface() 
 		self.T = 4 
+		self.T60 = T60      
+		self.SNR = SNR
+		self.dataset_dtype = dataset_dtype if dataset_dtype in dataset_dtypes else None
+		self.dataset_condition = dataset_condition if dataset_condition in dataset_conditions else None
 
 	def __len__(self):
 		return len(self.tr_ex_list) if self.size is None else self.size
@@ -113,8 +119,13 @@ class MovingSourceDataset(Dataset):
 		if sph_len < self.fs*self.T:
 			sph = torch.cat((sph, torch.zeros(1, self.fs*self.T - sph_len)), dim=1)
 
-		
+		#req_sph_len = self.fs*self.T
+		#sph_start_idx = random.randint(0, sph_len-req_sph_len)
+		#sph_end_idx = sph_start_idx + req_sph_len
+		#sph = sph[:,sph_start_idx:sph_end_idx]
+
 		sph_len = self.fs*self.T
+		
 		sph = sph[:,:sph_len]
 
 		if sph_len < noi_len:
@@ -147,7 +158,9 @@ class MovingSourceDataset(Dataset):
 		noise_traj_pts = np.ones((self.nb_points,1)) * noise_pos if noise_pos.shape[0] == 1 else noise_pos
 		"""
 		
-		src_traj_pts = cfg['src_traj_pts']
+		src_traj_pts = cfg['src_traj_pts'] 
+		#breakpoint()
+		src_traj_pts = src_traj_pts if self.dataset_dtype=="moving" else src_traj_pts[[0]]
 		noise_pos = cfg['noise_pos']
 		noise_pos = np.expand_dims(noise_pos, axis=0) if len(noise_pos.shape) == 1 else noise_pos
 		noise_traj_pts = noise_pos
@@ -159,8 +172,8 @@ class MovingSourceDataset(Dataset):
 		dbg_print(f'src: {src_traj_pts}, noise: {noise_pos}\n')
 		#breakpoint()
 
-		T60 = cfg['t60']
-		SNR = cfg['snr']
+		T60 = self.T60 if self.T60 is not None else cfg['t60']
+		SNR = self.SNR if self.SNR is not None else cfg['snr']
 
 		src_azimuth = np.degrees(cart2sph(src_traj_pts - array_pos)[:,2])
 		src_azimuth_keys = np.round(np.where(src_azimuth<0, 360+src_azimuth, src_azimuth)).astype('int32')	
@@ -171,6 +184,7 @@ class MovingSourceDataset(Dataset):
 		noi_azimuth_keys = np.round(np.where(noi_azimuth<0, 360+noi_azimuth, noi_azimuth)).astype('int32')	
 		noise_rirs, _ = self.rir_interface.get_rirs(t60=T60, idx_list=list(noi_azimuth_keys))
 
+		dbg_print(f'src: {src_azimuth}, noise: {noi_azimuth}\n')
 		if GPU_RIR_IMPLEMENTATION:
 			sph_reverb = self.simulate_source_gpuRIR(sph[0].numpy(), source_rirs, src_timestamps, t)
 			sph_dp = self.simulate_source_gpuRIR(sph[0].numpy(), dp_source_rirs, src_timestamps, t)
@@ -184,10 +198,14 @@ class MovingSourceDataset(Dataset):
 		else:
 			sph_reverb = self.simulate_source(sph, source_rirs, src_timestamps, t) #torch.from_numpy(source_rirs)
 			sph_dp = self.simulate_source(sph, dp_source_rirs, src_timestamps, t)
-			noi_reverb = self.simulate_source(noi, noise_rirs, noise_timestamps, t)
-
-			mic_signals, dp_signals = self.adjust_to_snr( sph_reverb, sph_dp, noi_reverb, SNR)
-
+			
+			if self.dataset_condition == "noisy_reverb" or self.dataset_condition == "noisy":
+				noi_reverb = self.simulate_source(noi, noise_rirs, noise_timestamps, t)
+				mic_signals, dp_signals = self.adjust_to_snr( sph_reverb, sph_dp, noi_reverb, SNR)
+			elif self.dataset_condition == "reverb" or self.dataset_condition == "ideal":
+				mic_signals, dp_signals = sph_reverb, sph_dp
+			else:
+				print(f"Invalid dataset_condition: {self.dataset_condition}")
 
 
 		DOA = cart2sph(src_trajectory - array_pos)  #[:,1:3], 
@@ -304,7 +322,13 @@ if __name__=="__main__":
 	t60 = 0.2
 	scenario = 'motion' #'static' #
 	dataset_file = f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt' # 'dataset_file_10sec.txt'
-	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size =1, transforms=None) #[NetworkInput(320, 160, 0)]) #
+
+	T60=0.0
+	SNR=5
+	dataset_dtype="moving"
+	dataset_condition="noisy"
+
+	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size=1, transforms=None, T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #[NetworkInput(320, 160, 0)]) #
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
 	for _batch_idx, val in enumerate(train_loader):
@@ -312,7 +336,7 @@ if __name__=="__main__":
 		        tgt_sig: {val[1].shape}, {val[1].dtype}, {val[1].device} \
 				doa: {val[2].shape}, {val[2].dtype}, {val[2].device} \n")
 
-		torchaudio.save(f'{logs_dir}sig_{scenario}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
-		torchaudio.save(f'{logs_dir}tgt_{scenario}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)
+		torchaudio.save(f'{logs_dir}{dataset_condition}_sig_{dataset_dtype}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
+		torchaudio.save(f'{logs_dir}{dataset_condition}_tgt_{dataset_dtype}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)
 
 		#break

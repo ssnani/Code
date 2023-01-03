@@ -97,7 +97,8 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 def compute_vad(source_signal: 'Array ( sig_len)', frame_size: 'int (samples) ', frame_shift: 'int (samples)', fs: int = 16000):
     import webrtcvad
     vad = webrtcvad.Vad()
-    vad.set_mode(1)
+    agressiveness=3
+    vad.set_mode(agressiveness)
 
     #sig_vad = np.zeros_like(source_signal)
     sig_vad = []

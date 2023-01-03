@@ -109,11 +109,14 @@ if __name__=="__main__":
 		noi_mic_dist = 1.0
 		scenario = "source_moving"
 		
-		pp_str = f'../signals/{scenario}/from_dataset_circular_motion_snr_{snr}_t60_{t60}_src_mic_dist_{src_mic_dist}_noi_mic_dist_{noi_mic_dist}/'    # from_datasetfile_10sec/v2/'
+		scratch_dir='/scratch/bbje/battula12/ControlledExp/Testing/Scenario_Comparision/'
+		pp_str = f'{scratch_dir}signals/{scenario}/from_val_dataset_circular_motion_snr_{snr}_t60_{t60}_src_mic_dist_{src_mic_dist}_noi_mic_dist_{noi_mic_dist}/'    #../# from_datasetfile_10sec/v2/'
 
+		import os
+		os.makedirs(pp_str, exist_ok=True)
 		
-		dataset_file = '../test_dataset_file_circular_motion_snr_-5_t60_0.2.txt'
-		test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)], size=5) #
+		dataset_file = '../val_dataset_file_circular_motion_snr_-5_t60_0.2.txt'
+		test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)])#, size=1 ) #
 		"""
 		test_snr =  10.732049213402163
 		test_t60 =  0.7804136751621371
@@ -122,7 +125,7 @@ if __name__=="__main__":
 		non_linear_motion_prob = 0.0
 		"""
 		
-	test_loader = DataLoader(test_dataset, batch_size = 1, num_workers=0, pin_memory=True, drop_last=True)
+	test_loader = DataLoader(test_dataset, batch_size = 1, num_workers=1, pin_memory=True, drop_last=True)
 
 	model = DOA_fwk(array_setup = array_setup_10cm_2mic)
 	#trainer.test(model, dataloaders=test_loader)

@@ -10,6 +10,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSum
 
 import os
 import sys 
+import random
 from dataset import MovingSourceDataset, NetworkInput
 from array_setup import array_setup_10cm_2mic
 from networks import Net
@@ -86,13 +87,14 @@ class DCCRN_model(pl.LightningModule):
 		tensorboard = self.logger.experiment
 		if (self.current_epoch %10==0):
 			for batch_idx, batch_output in enumerate(validation_step_outputs):
-				if ((batch_idx+self.current_epoch)%4==0):
-					est_ri_spec = batch_output['est_ri_spec'][0]
-					est_ri_spec = est_ri_spec.to(torch.float32)
-					_est_ri_spec = torch.permute(est_ri_spec,[2,1,0])  #(2,T,F) -> (F,T,2)
-					est_sig = torch.istft(_est_ri_spec, 320,160,320,torch.hamming_window(320).type_as(_est_ri_spec))
-					#rank_zero_only
-					tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}', est_sig/torch.max(torch.abs(est_sig)), sample_rate=16000)
+				#if ((batch_idx+self.current_epoch)%4==0):
+				idx = random.randint(0, self.batch_size-1)
+				est_ri_spec = batch_output['est_ri_spec'][idx]
+				est_ri_spec = est_ri_spec.to(torch.float32)
+				_est_ri_spec = torch.permute(est_ri_spec,[2,1,0])  #(2,T,F) -> (F,T,2)
+				est_sig = torch.istft(_est_ri_spec, 320,160,320,torch.hamming_window(320).type_as(_est_ri_spec))
+				#rank_zero_only
+				tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}', est_sig/torch.max(torch.abs(est_sig)), sample_rate=16000)
 
 
 def main(args):
@@ -150,7 +152,7 @@ def main(args):
 	# training
 	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=16,
 					max_epochs = args.max_n_epochs,
-					callbacks=[checkpoint_callback, model_summary, lr_monitor, early_stopping, pesq_checkpoint_callback, stoi_checkpoint_callback, Losscallbacks()],
+					callbacks=[checkpoint_callback, model_summary, lr_monitor, early_stopping], #pesq_checkpoint_callback, stoi_checkpoint_callback, Losscallbacks()
 					logger=tb_logger,
 					strategy="ddp_find_unused_parameters_false",
 					check_val_every_n_epoch=1,
@@ -165,7 +167,7 @@ def main(args):
 				
 	msg = f"Train Config: bidirectional: {bidirectional}, T: {T} \n, \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n \
-		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir} \n"
+		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir}, exp_name: {exp_name} \n"
 
 	trainer.logger.experiment.add_text("Exp details", msg)
 
@@ -181,15 +183,22 @@ def test(args):
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
 	dataset_file = args.dataset_file
-	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, #size=1,
-									transforms=[ NetworkInput(320, 160, ref_mic_idx)]) #
-	test_loader = DataLoader(test_dataset, batch_size = args.batch_size, num_workers=args.num_workers
-							, pin_memory=True, drop_last=True)  
+	T60 = args.T60 
+	SNR = args.SNR
+	dataset_dtype = args.dataset_dtype
+	dataset_condition = args.dataset_condition
+
+	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic,# size=1,
+									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
+									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #
+	test_loader = DataLoader(test_dataset, batch_size = args.batch_size,
+							 num_workers=args.num_workers, pin_memory=True, drop_last=True)  
 
 	## exp path directories
 
-	ckpt_dir = args.ckpt_dir #f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
-	exp_name = args.exp_name #f'{args.exp_name}_t60_{T60}_snr_{SNR}dB'
+	#ckpt_dir = f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	exp_name = f'Test_{args.exp_name}_t60_{T60}_snr_{SNR}dB'
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 
@@ -199,9 +208,10 @@ def test(args):
 						)
 	bidirectional = args.bidirectional
 	
-	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, dataset_file: {dataset_file} \
-		batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir}, \
-		model: {args.model_path}, ref_mic_idx : {ref_mic_idx}, snr: {args.test_snr}, test_t60: {args.test_t60} \n"
+	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, \n \
+		ckpt_dir: {ckpt_dir}, exp_name: {exp_name}, \n \
+		model: {args.model_path}, ref_mic_idx : {ref_mic_idx}, \n \
+		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition} \n"
 
 	trainer.logger.experiment.add_text("Exp details", msg)
 

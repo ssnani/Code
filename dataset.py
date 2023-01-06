@@ -111,31 +111,39 @@ class MovingSourceDataset(Dataset):
 		#truncating to 10 sec utterances
 		
 
-		sph_len = sph.shape[1]
+		act_sph_len = sph.shape[1]
 		noi_len = noi.shape[1]
 
-		dbg_print(f'sph: {sph_len}, noi: {noi_len}')
-		#assert sph_len > 16000*4       #TODO: tempchange to 4 sec
-		if sph_len < self.fs*self.T:
-			sph = torch.cat((sph, torch.zeros(1, self.fs*self.T - sph_len)), dim=1)
+		req_sph_len = self.fs*self.T
 
-		#req_sph_len = self.fs*self.T
-		#sph_start_idx = random.randint(0, sph_len-req_sph_len)
-		#sph_end_idx = sph_start_idx + req_sph_len
-		#sph = sph[:,sph_start_idx:sph_end_idx]
+		dbg_print(f'sph: {act_sph_len}, noi: {noi_len}')
+		#assert sph_len > 16000*4       #TODO: tempchange to 4 sec
+		if act_sph_len < req_sph_len:
+			sph = torch.cat((sph, torch.zeros(1, req_sph_len - act_sph_len)), dim=1)
+		
+		sph_len = sph.shape[1]
+		### Introducing randomness
+
+		sph_start_idx = random.randint(0, sph_len - req_sph_len)
+		sph_end_idx = sph_start_idx + req_sph_len
+		sph = sph[:,sph_start_idx:sph_end_idx]
+
+		noi_start_idx = random.randint(0, noi_len - req_sph_len)
+		noi_end_idx = noi_start_idx + req_sph_len
+		noi = noi[:,noi_start_idx:noi_end_idx]
 
 		sph_len = self.fs*self.T
-		
-		sph = sph[:,:sph_len]
+		if 0:
+			sph = sph[:,:sph_len]
 
-		if sph_len < noi_len:
-			"""
-			start_idx = random.randint(0, noi_len - sph_len -1)
-			noi = noi[:,start_idx:start_idx+sph_len]
-			"""
-			noi = noi[:,:sph_len]
-		else:
-			sph = sph[:,:noi_len]
+			if sph_len < noi_len:
+				"""
+				start_idx = random.randint(0, noi_len - sph_len -1)
+				noi = noi[:,start_idx:start_idx+sph_len]
+				"""
+				noi = noi[:,:sph_len]
+			else:
+				sph = sph[:,:noi_len]
 
 		dbg_print(f'sph: {sph_len}, noi: {noi_len}')
 

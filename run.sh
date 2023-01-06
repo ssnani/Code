@@ -5,7 +5,7 @@ srun ~/.conda/envs/moving_source/bin/python train.py --num_nodes=$1 \
                   --T60=0.0 \
                   --SNR=-5.0 \
                   --dataset_dtype=stationary \
-                  --dataset_condition=noisy \
+                  --dataset_condition=reverb \
                   --ref_mic_idx=0 \
                   --train \
                   --dataset_file=../dataset_file_circular_motion_snr_-5_t60_0.2.txt \
@@ -14,6 +14,6 @@ srun ~/.conda/envs/moving_source/bin/python train.py --num_nodes=$1 \
                   --batch_size=128 \
                   --max_n_epochs=100 \
                   --num_workers=4 \
-                  --ckpt_dir=/scratch/bbje/battula12/ControlledExp \
+                  --ckpt_dir=/scratch/bbje/battula12/ControlledExp/random_seg \
                   --exp_name=CircularMotion \
                   --resume_model=last.ckpt

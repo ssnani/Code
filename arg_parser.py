@@ -103,7 +103,7 @@ parser.add_argument('--nb_points',
                     type=int,
                     default=64,
                     help='nb points between start and end') 
-
+#Testing Individual Jobs
 parser.add_argument('--test_snr',
                     type=int,
                     default=5,
@@ -113,6 +113,12 @@ parser.add_argument('--test_t60',
                     type=float,
                     default=0.2,
                     help='Test T60 (sec)')
+#Testing Array Jobs
+parser.add_argument('--input_test_filename',
+                    type=str,
+                    default='',
+                    help='Absolute Test file path which contain Parameters required')
+
 
 if __name__=="__main__":
     args = parser.parse_args()

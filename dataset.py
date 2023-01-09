@@ -71,7 +71,7 @@ class MovingSourceDataset(Dataset):
 
 	# Currently supported for > 10 sec utterances
 
-	def __init__(self, dataset_info_file, array_setup, transforms: list =None, size=None, T60=None, SNR=None, dataset_dtype=None, dataset_condition=None):
+	def __init__(self, dataset_info_file, array_setup, transforms: list =None, size=None, T60=None, SNR=None, dataset_dtype=None, dataset_condition=None, train_flag=None):
 		# T60, SNR : if provided during initialization is ONLY considered for training and NOT from config file
  
 		with open(dataset_info_file, 'r') as f:
@@ -89,6 +89,7 @@ class MovingSourceDataset(Dataset):
 		self.SNR = SNR
 		self.dataset_dtype = dataset_dtype if dataset_dtype in dataset_dtypes else None
 		self.dataset_condition = dataset_condition if dataset_condition in dataset_conditions else None
+		self.train = train_flag
 
 	def __len__(self):
 		return len(self.tr_ex_list) if self.size is None else self.size
@@ -179,9 +180,20 @@ class MovingSourceDataset(Dataset):
 	
 		dbg_print(f'src: {src_traj_pts}, noise: {noise_pos}\n')
 		#breakpoint()
-
-		T60 = self.T60 if self.T60 is not None else cfg['t60']
-		SNR = self.SNR if self.SNR is not None else cfg['snr']
+		if self.train:
+			#reading from file and ignoring from launch shell script
+			if self.dataset_condition == "noisy":
+				SNR = float(line_info[3])    
+				T60 = 0.0
+			elif self.dataset_condition == "reverb":
+				T60 = float(line_info[3]) 
+				SNR = None
+			elif self.dataset_condition == "noisy_reverb":
+				SNR = float(line_info[3])    
+				T60 = float(line_info[4]) 
+		else:
+			T60 = self.T60 if self.T60 is not None else cfg['t60']
+			SNR = self.SNR if self.SNR is not None else cfg['snr']
 
 		src_azimuth = np.degrees(cart2sph(src_traj_pts - array_pos)[:,2])
 		src_azimuth_keys = np.round(np.where(src_azimuth<0, 360+src_azimuth, src_azimuth)).astype('int32')	
@@ -211,7 +223,8 @@ class MovingSourceDataset(Dataset):
 				noi_reverb = self.simulate_source(noi, noise_rirs, noise_timestamps, t)
 				mic_signals, dp_signals = self.adjust_to_snr( sph_reverb, sph_dp, noi_reverb, SNR)
 			elif self.dataset_condition == "reverb" or self.dataset_condition == "ideal":
-				mic_signals, dp_signals = sph_reverb, sph_dp
+				mic_signals, dp_signals = self.rms_normalize(sph_reverb, sph_dp)
+
 			else:
 				print(f"Invalid dataset_condition: {self.dataset_condition}")
 
@@ -323,18 +336,29 @@ class MovingSourceDataset(Dataset):
 
 		return mic_signals, dp_signals
 
+	def rms_normalize(self, mic_signals, dp_signals):
+		# normalize the root mean square of the mixture to a constant
+		sph_len = mic_signals.shape[1]   #*mic_signals.shape[1]          #All mics
+
+		c = 1.0 * torch.sqrt(sph_len / (torch.sum(mic_signals[0,:]**2) + 1e-8))
+
+		mic_signals *= c
+		dp_signals *= c
+		return mic_signals, dp_signals
+
+
 if __name__=="__main__":
 
 	logs_dir = '../signals/'
 	snr = -5
 	t60 = 0.2
 	scenario = 'motion' #'static' #
-	dataset_file = f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt' # 'dataset_file_10sec.txt'
+	dataset_file = f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}_reverb.txt' # 'dataset_file_10sec.txt'
 
-	T60=0.0
+	T60=0.4
 	SNR=5
-	dataset_dtype="moving"
-	dataset_condition="noisy"
+	dataset_dtype="stationary"
+	dataset_condition="reverb"
 
 	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size=1, transforms=None, T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #[NetworkInput(320, 160, 0)]) #
 	#breakpoint()

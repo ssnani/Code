@@ -42,8 +42,8 @@ class DCCRN_model(pl.LightningModule):
 
 	def configure_optimizers(self):
 		_optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3, amsgrad=True)
-		#_lr_scheduler = torch.optim.lr_scheduler.StepLR(_optimizer, step_size=2, gamma=0.98)
-		_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(_optimizer, factor=0.5, patience=5)
+		_lr_scheduler = torch.optim.lr_scheduler.StepLR(_optimizer, step_size=2, gamma=0.98)
+		#_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(_optimizer, factor=0.5, patience=5)
 		return {"optimizer": _optimizer, "lr_scheduler": _lr_scheduler, "monitor": 'val_loss'}
 
 	def forward(self, input_batch):
@@ -111,12 +111,12 @@ def main(args):
 	
 	dataset_file = args.dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
 	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
-										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #
+										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #
 
 
 	val_dataset_file = args.val_dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
 	dev_dataset = MovingSourceDataset(val_dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
-									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition)
+									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train)
 
 
 	# model
@@ -127,7 +127,7 @@ def main(args):
 	## exp path directories
 
 	ckpt_dir = f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
-	exp_name = f'{args.exp_name}_t60_{T60}_snr_{SNR}dB'
+	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
 	msg_pre_trained = None
 	if (not os.path.exists(os.path.join(ckpt_dir,args.resume_model))) and len(args.pre_trained_ckpt_path)>0:
@@ -145,7 +145,7 @@ def main(args):
 	stoi_checkpoint_callback.CHECKPOINT_NAME_LAST = "stoi-last"
 
 	model_summary = ModelSummary(max_depth=1)
-	early_stopping = EarlyStopping('val_loss', patience=5)
+	early_stopping = EarlyStopping('val_loss', patience=10)
 	lr_monitor = LearningRateMonitor(logging_interval='step')
 
 
@@ -183,11 +183,30 @@ def test(args):
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
 	dataset_file = args.dataset_file
-	T60 = args.T60 
-	SNR = args.SNR
-	dataset_dtype = args.dataset_dtype
-	dataset_condition = args.dataset_condition
 
+	if 0:
+		T60 = args.T60 
+		SNR = args.SNR
+		
+	else:
+		#reading from file for array jobs
+		with open(args.input_test_filename, 'r') as f:
+			lines = [line for line in f.readlines()]
+
+		T60 = None
+		SNR = None
+		#key value 
+		for line in lines:
+			lst = line.strip().split()
+			if lst[0]=="T60":
+				T60 = float(lst[1])
+			elif lst[0]=="SNR":
+				SNR = float(lst[1])
+			else:
+				continue
+	
+	dataset_condition = args.dataset_condition
+	dataset_dtype = args.dataset_dtype
 	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic,# size=1,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #
@@ -198,7 +217,17 @@ def test(args):
 
 	#ckpt_dir = f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
 	ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'
-	exp_name = f'Test_{args.exp_name}_t60_{T60}_snr_{SNR}dB'
+
+	if args.dataset_condition =="reverb":
+		app_str = f't60_{T60}'
+	elif args.dataset_condition =="noisy":
+		app_str = f'snr_{SNR}dB'
+	elif args.dataset_condition =="noisy_reverb":
+		app_str = f't60_{T60}_snr_{SNR}dB'
+	else:
+		app_str = ''
+
+	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}'
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 

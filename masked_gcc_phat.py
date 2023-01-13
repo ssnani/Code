@@ -66,7 +66,7 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
         delays.append(delay)
         delay_vec = angular_freq*delay
         #print(X_ph_diff.shape, delay_vec.shape)
-        gcc_phat_pq = torch.cos( X_ph_diff - delay_vec)
+        gcc_phat_pq = torch.cos( X_ph_diff - delay_vec.to(device=X_ph_diff.device))
         if weighted:
             mgcc_phat_pq = est_mask_pq*gcc_phat_pq
             gcc_phat_pq = mgcc_phat_pq
@@ -177,3 +177,68 @@ def compute_vad_speech_brain(sig, frame_size: 'int (samples) ', frame_shift: 'in
 
     
 
+
+
+def block_doa(frm_val, block_size):
+    n_blocks = frm_val.shape[1]// block_size + 1
+
+    blk_doas = []
+    blk_start = 0
+    for blk_idx in range(0, n_blocks):
+
+        if blk_idx < n_blocks-1:
+            blk_end = blk_start + block_size
+        else:
+            blk_end = blk_start + frm_val.shape[1]
+
+        blk_sum = torch.sum(frm_val[:,blk_start:blk_end],dim=1)
+        blk_doa_idx = torch.argmax(blk_sum)
+        blk_doa = blk_doa_idx
+
+        blk_start = blk_end
+
+        blk_doas.append(blk_doa)
+
+    return blk_doas
+
+#for now taking absolute inside the block
+def block_lbl_doa(lbl_doa, block_size):
+    #assuming lbl_doa [r, elv, azi] : (1, frms, 3)
+    n_blocks = lbl_doa.shape[1]// block_size + 1
+
+    blk_doas = []
+    blk_range = []
+    blk_start = 0
+    for blk_idx in range(0, n_blocks):
+        if blk_idx < n_blocks-1:
+            blk_end = blk_start + block_size
+        else:
+            blk_end = blk_start + lbl_doa.shape[1]
+
+        blk_doa = torch.mean(torch.abs(lbl_doa[:,blk_start:blk_end, : ]),dim=1)
+
+        blk_start = blk_end
+        blk_doas.append(torch.rad2deg(blk_doa[:,2])) # azimuth
+        blk_range.append(blk_doa[:,0]) # range
+
+    return blk_doas, blk_range
+
+
+def blk_vad(frm_level_vad, block_size):
+    #assuming frm_level_vad : (frms)
+    n_blocks = frm_level_vad.shape[0]// block_size + 1
+
+    frm_level_vad = 1.0*frm_level_vad
+    blk_vads = []
+    blk_start = 0
+    for blk_idx in range(0, n_blocks):
+        if blk_idx < n_blocks-1:
+            blk_end = blk_start + block_size
+        else:
+            blk_end = blk_start + frm_level_vad.shape[0]
+
+        _blk_vad = torch.mean(frm_level_vad[blk_start:blk_end])
+
+        blk_start = blk_end
+        blk_vads.append(_blk_vad)
+    return blk_vads

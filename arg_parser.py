@@ -69,6 +69,11 @@ parser.add_argument('--max_n_epochs',
                     type=int,
                     default=100,
                     help='Maximum number of epochs')
+parser.add_argument('--net_type',
+                    type=str,
+                    default='miso',
+                    help='miso or mimo'
+                    )   
 # distributed training
 parser.add_argument('--num_nodes',
                     type=int,
@@ -119,6 +124,16 @@ parser.add_argument('--input_test_filename',
                     default='',
                     help='Absolute Test file path which contain Parameters required')
 
+## Array Jobs flag
+
+parser.add_argument('--array_job',
+                    action='store_true',
+                    help='Trainong Array jobs model')
+
+parser.add_argument('--input_train_filename',
+                    type=str,
+                    default='',
+                    help='Absolute Train file path which contain Parameters required')
 
 if __name__=="__main__":
     args = parser.parse_args()

@@ -104,7 +104,7 @@ def eval_metrics_batch_v1(ref_wavs, est_wavs):
     for batch in range(ref_wavs.shape[0]):
         est_d = eval_metrics_v1(ref_wavs[batch,:].reshape(-1),est_wavs[batch,:].reshape(-1))
         
-        print(est_d)
+        #print(est_d)
         _snr = est_d['snr']
         _si_snr = est_d['si_snr']
         pesq_nb = est_d['pesq_nb']

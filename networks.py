@@ -199,6 +199,72 @@ class Net(nn.Module):
 
         return out
 
+class MIMO_Net(nn.Module):
+    def __init__(self, bidirectional):
+        super(MIMO_Net, self).__init__()
+                
+        self.conv1 = DenseConv2d(4, 16, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv2 = DenseConv2d(16, 32, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv3 = DenseConv2d(32, 64, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv4 = DenseConv2d(64, 128, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv5 = DenseConv2d(128, 256, (1,4), padding=(0,1), stride=(1,2), grate=8)
+
+        self.glstm = GLSTM(5*256, 4, bidirectional)
+        
+        self.conv5_t = DenseConvTranspose2d(256+256, 256, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv4_t = DenseConvTranspose2d(256+128, 128, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv3_t = DenseConvTranspose2d(128+64, 64, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv2_t = DenseConvTranspose2d(64+32, 32, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        self.conv1_t = DenseConvTranspose2d(32+16, 16, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        
+        self.fc1 = nn.Linear(160*8, 161)
+        self.fc2 = nn.Linear(160*8, 161)
+
+        self.fc3 = nn.Linear(160*8, 161)
+        self.fc4 = nn.Linear(160*8, 161)
+        
+        self.path1 = DenseConv2d(16, 16, (1,3), padding=(0,1), stride=(1,1), grate=8)
+        self.path2 = DenseConv2d(32, 32, (1,3), padding=(0,1), stride=(1,1), grate=8)
+        self.path3 = DenseConv2d(64, 64, (1,3), padding=(0,1), stride=(1,1), grate=8)
+        self.path4 = DenseConv2d(128, 128, (1,3), padding=(0,1), stride=(1,1), grate=8)
+        self.path5 = DenseConv2d(256, 256, (1,3), padding=(0,1), stride=(1,1), grate=8)
+
+    def forward(self, x):
+        
+        out = x
+        e1 = self.conv1(out)
+        e2 = self.conv2(e1)
+        e3 = self.conv3(e2)
+        e4 = self.conv4(e3)
+        e5 = self.conv5(e4)
+        
+        out = e5
+        
+        out = self.glstm(out)
+        
+        out = torch.cat([out, self.path5(e5)], dim=1)
+        d5 = torch.cat([self.conv5_t(out), self.path4(e4)], dim=1)
+        d4 = torch.cat([self.conv4_t(d5), self.path3(e3)], dim=1)
+        d3 = torch.cat([self.conv3_t(d4), self.path2(e2)], dim=1)
+        d2 = torch.cat([self.conv2_t(d3), self.path1(e1)], dim=1)
+        d1 = self.conv1_t(d2)
+
+        #breakpoint()
+        out1 = d1[:,:8].transpose(1,2).contiguous().view(d1.size(0), d1.size(2), -1).contiguous()
+        out2 = d1[:,8:].transpose(1,2).contiguous().view(d1.size(0), d1.size(2), -1).contiguous()
+
+        out_r1 = self.fc1(out1)
+        out_i1 = self.fc2(out2)
+
+        #out_0 = torch.stack([out_r1, out_i1], dim=1)
+
+        out_r2 = self.fc3(out1)
+        out_i2 = self.fc4(out2)
+
+        out = torch.stack([out_r1, out_i1, out_r2, out_i2], dim=1)
+
+        return out
+        
 def test_model(bidirectional):
     feat = torch.randn(128, 4, 200, 161)
     net = Net(bidirectional)

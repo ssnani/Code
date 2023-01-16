@@ -242,3 +242,71 @@ def blk_vad(frm_level_vad, block_size):
         blk_start = blk_end
         blk_vads.append(_blk_vad)
     return blk_vads
+
+
+
+#torch implementation
+def batch_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist):
+
+    (chan, frames, freq) = X.shape
+    X_ph = torch.angle(X)
+    X_ph_diff = X_ph[0,:,:] - X_ph[1,:,:]
+
+    #weightage
+    if weighted:
+        est_mask_pq = est_mask[0,:,:]*est_mask[1,:,:]
+
+
+    angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(0, freq, dtype=torch.float32)
+
+    angle_step = 1.0
+    all_directions = torch.linspace(0,180.0,int(2*90.0/angle_step+1),dtype=torch.float32) #a set of potential directions
+    dist = src_mic_dist
+    c = 343
+
+    all_directions_val = [] 
+    delays = []
+
+    for ind, direction in enumerate(all_directions):
+        #ang = (direction - 90)/180.0*torch.pi  #radians
+        ang_doa  = (direction)/180.0*torch.pi  #radians
+        
+        if is_euclidean_dist:
+            src_pos = torch.tensor([torch.cos(ang_doa)*dist,torch.sin(ang_doa)*dist, 0.0],dtype=torch.float32) #+ mic_center
+            dist_pp = torch.sqrt(torch.sum((src_pos-local_mic_pos[0])**2))  ## TODO: pp
+            dist_qq = torch.sqrt(torch.sum((src_pos-local_mic_pos[1])**2))  ## TODO: qq
+            delay = (dist_qq-dist_pp)/c #,device=est_mask.device)#.type_as(est_mask)   
+
+        else:
+            # ASSUMPTION on unit circle
+            dist = 1
+            src_pos = torch.tensor([torch.cos(ang_doa)*dist,torch.sin(ang_doa)*dist, 0.0],dtype=torch.float32) 
+            delay = np.dot((local_mic_pos[0]-local_mic_pos[1]), src_pos)/c
+
+            
+        delays.append(delay)
+        delay_vec = angular_freq*delay
+        #print(X_ph_diff.shape, delay_vec.shape)
+        gcc_phat_pq = torch.cos( X_ph_diff - delay_vec.to(device=X_ph_diff.device))
+        if weighted:
+            mgcc_phat_pq = est_mask_pq*gcc_phat_pq
+            gcc_phat_pq = mgcc_phat_pq
+
+        per_direction_val = torch.sum(gcc_phat_pq, dim=1)
+
+        all_directions_val.append(per_direction_val)
+
+    vals = torch.stack(all_directions_val, dim=0)
+
+    sig_vad_frms = sig_vad.shape[0]
+    vals = vals[:,:sig_vad_frms]*sig_vad   ##caluation for only vad frames
+
+    utt_sum = torch.sum(vals,dim=1)
+    utt_doa_idx = torch.argmax(utt_sum)
+    utt_doa = all_directions[utt_doa_idx]
+
+
+    doa_idx = torch.argmax(vals,dim=0)
+    doa = all_directions[doa_idx]
+
+    return doa, vals, utt_doa, utt_sum, delays

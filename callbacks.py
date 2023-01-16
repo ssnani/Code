@@ -156,8 +156,8 @@ class DOAcallbacks(Callback):
 		return mix_sig
 
 	def format_complex(self, mix_ri_spec):
-		#adjusting shape, type for istft
-		#(batch_size, 4, T, F) . -> (batch_size, F, T, 2)
+		#adjusting shape, type for complex
+		#(batch_size, 4, T, F) . -> (batch_size*2, T, F)
 		mix_ri_spec = mix_ri_spec.to(torch.float32)
 
 		(batch_size, n_ch, n_frms, n_freq) = mix_ri_spec.shape
@@ -167,7 +167,6 @@ class DOAcallbacks(Callback):
 		mix_ri_spec_cmplx = torch.complex(intm_mix_ri_spec[:,0,:,:], intm_mix_ri_spec[:,1,:,:])
 
 		return mix_ri_spec_cmplx
-
 
 	def get_acc(self, est_vad, est_blk_val, tgt_blk_val, tol=5, vad_th=0.6):
 		n_blocks = len(est_vad)
@@ -186,22 +185,46 @@ class DOAcallbacks(Callback):
 		
 		#print(f'n_blocks: {n_blocks}, non_vad_blks: {non_vad_blks}')
 		return acc
-		
-	def on_test_batch_end(
-		self,
-		trainer: "pl.Trainer",
-		pl_module: "pl.LightningModule",
-		outputs: Optional[STEP_OUTPUT],
-		batch: Any,
-		batch_idx: int,
-		dataloader_idx: int,
-		) -> None:
+
+	def _batch_metrics(self, batch, outputs):
 		mix_ri_spec, tgt_ri_spec, doa = batch
 		est_ri_spec = outputs['est_ri_spec']  #(b, n_ch, T, F)
 
-
+		## SE metrics
 		#adjusting shape, type for istft
+		mix_sig = self.format_istft(mix_ri_spec)
+		est_sig = self.format_istft(est_ri_spec)
 		tgt_sig = self.format_istft(tgt_ri_spec)
+
+
+		mix_metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), mix_sig.cpu().numpy())
+		self.log("MIX_SNR", mix_metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_STOI", mix_metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_ESTOI", mix_metrics['e_stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_PESQ_NB", mix_metrics['pesq_nb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_PESQ_WB", mix_metrics['pesq_wb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+
+		_metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), est_sig.cpu().numpy())
+		self.log("SNR", _metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("STOI", _metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("ESTOI", _metrics['e_stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("PESQ_NB", _metrics['pesq_nb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("PESQ_WB", _metrics['pesq_wb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+		"""
+		opinion = None
+		opinion = "good" if (_metrics['stoi'] - mix_metrics['stoi']) > 0.2 else opinion
+		opinion = "decent" if (_metrics['stoi'] - mix_metrics['stoi']) < 0.05 else opinion
+
+		if opinion:
+			trainer.logger.experiment.add_audio(f'mix_{batch_idx}_{opinion}', mix_sig/torch.max(torch.abs(mix_sig)), sample_rate=16000)
+			trainer.logger.experiment.add_audio(f'tgt_{batch_idx}_{opinion}', tgt_sig/torch.max(torch.abs(tgt_sig)), sample_rate=16000)
+			trainer.logger.experiment.add_audio(f'est_{batch_idx}_{opinion}', est_sig/torch.max(torch.abs(est_sig)), sample_rate=16000)
+
+		"""
+
+
 		#Vad 
 		sig_vad_1 = compute_vad(tgt_sig[0,:].cpu().numpy(), self.frame_size, self.frame_shift)
 		sig_vad_2 = compute_vad(tgt_sig[1,:].cpu().numpy(), self.frame_size, self.frame_shift)
@@ -233,13 +256,27 @@ class DOAcallbacks(Callback):
 		est_Acc = self.get_acc(tgt_blk_vad, est_blk_vals, tgt_blk_vals)
 
 		
-		print(mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
+		#print(mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
 
 		self.log("mix_frm_Acc", mix_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_frm_Acc", est_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_blk_Acc", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_blk_Acc", est_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
+		return
+
+
+	def on_test_batch_end(
+		self,
+		trainer: "pl.Trainer",
+		pl_module: "pl.LightningModule",
+		outputs: Optional[STEP_OUTPUT],
+		batch: Any,
+		batch_idx: int,
+		dataloader_idx: int,
+		) -> None:
+
+		self._batch_metrics(batch, outputs)
 		"""
 		pp_str = f'../signals/tr_s_test_{self.dataset_dtype}_{self.dataset_condition}_{app_str}'    # from_datasetfile_10sec/v2/'
 				
@@ -256,4 +293,14 @@ class DOAcallbacks(Callback):
 		"""
 
 
-		
+	def on_validation_batch_end(
+		self,
+		trainer: "pl.Trainer",
+		pl_module: "pl.LightningModule",
+		outputs: Optional[STEP_OUTPUT],
+		batch: Any,
+		batch_idx: int,
+		dataloader_idx: int,
+		) -> None:
+
+		self._batch_metrics(batch, outputs)

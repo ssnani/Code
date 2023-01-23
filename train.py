@@ -17,20 +17,22 @@ from networks import Net, MIMO_Net
 from loss_criterion import LossFunction, MIMO_LossFunction
 from arg_parser import parser
 from debug import dbg_print
-from callbacks import Losscallbacks, DOAcallbacks
+from callbacks import Losscallbacks, DOAcallbacks, GradNormCallback
 
 class DCCRN_model(pl.LightningModule):
 	def __init__(self, bidirectional, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, net_type=None):
 		super().__init__()
 		pl.seed_everything(77)
 
-		self.model = MIMO_Net(bidirectional) if net_type=="mimo" else Net(bidirectional)
-		self.loss = MIMO_LossFunction() if net_type=="mimo" else LossFunction()
+		self.model = MIMO_Net(bidirectional) if "mimo" in net_type else Net(bidirectional) # in 
+		self.loss = MIMO_LossFunction() if "mimo" in net_type else LossFunction()
 
 		self.batch_size = batch_size
 		self.num_workers = num_workers
 		self.train_dataset = train_dataset
 		self.val_dataset = val_dataset
+
+		self.net_type = net_type
 
 	def train_dataloader(self):
 		return DataLoader(self.train_dataset, batch_size = self.batch_size, 
@@ -54,32 +56,56 @@ class DCCRN_model(pl.LightningModule):
 
 	def training_step(self, train_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(train_batch)
-		loss, loss_ri, loss_mag = self.loss(est_ri_spec, tgt_ri_spec)
+		
+		if "mimo_ph_diff" == self.net_type:
+			loss, loss_ri, loss_mag, loss_ph_diff = self.loss(est_ri_spec, tgt_ri_spec)
+		else:
+			loss, loss_ri, loss_mag = self.loss(est_ri_spec, tgt_ri_spec)
 
 		self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-		return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec }
+		if self.net_type=="mimo_ph_diff":
+			self.log('loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, "est_ri_spec" : est_ri_spec }
+		else:
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec } 
 
 
 	def validation_step(self, val_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(val_batch)
-		loss, loss_ri, loss_mag  = self.loss(est_ri_spec, tgt_ri_spec)
+		
+		if "mimo_ph_diff" == self.net_type:
+			loss, loss_ri, loss_mag, loss_ph_diff = self.loss(est_ri_spec, tgt_ri_spec)
+		else:
+			loss, loss_ri, loss_mag  = self.loss(est_ri_spec, tgt_ri_spec) 
 
 		self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('val_loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('val_loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-		return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec }
+		if self.net_type=="mimo_ph_diff":
+			self.log('val_loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, "est_ri_spec" : est_ri_spec }
+		else:
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec } 
 
 
 	def test_step(self, test_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(test_batch)
-		loss, loss_ri, loss_mag  = self.loss(est_ri_spec, tgt_ri_spec)
+
+		if "mimo_ph_diff" == self.net_type:
+			loss, loss_ri, loss_mag, loss_ph_diff = self.loss(est_ri_spec, tgt_ri_spec)
+		else:
+			loss, loss_ri, loss_mag  = self.loss(est_ri_spec, tgt_ri_spec) 
 
 		self.log('test_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('test_loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('test_loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-		return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec }
+		if self.net_type=="mimo_ph_diff":
+			self.log('test_loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, "est_ri_spec" : est_ri_spec }
+		else:
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec }
 
 
 	def validation_epoch_end(self, validation_step_outputs):
@@ -150,12 +176,12 @@ def main(args):
 
 
 	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
-										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #
+										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #, size=2
 
 
 	
 	dev_dataset = MovingSourceDataset(val_dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
-									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train)
+									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #, size=2
 
 
 	# model
@@ -188,17 +214,19 @@ def main(args):
 	lr_monitor = LearningRateMonitor(logging_interval='step')
 
 	# training
-	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=16,
+	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=32,
 					max_epochs = args.max_n_epochs,
-					callbacks=[checkpoint_callback, model_summary, lr_monitor, early_stopping],# pesq_checkpoint_callback, stoi_checkpoint_callback, DOAcallbacks()],
+					callbacks=[checkpoint_callback, model_summary, lr_monitor],# pesq_checkpoint_callback, stoi_checkpoint_callback, DOAcallbacks()], early_stopping, GradNormCallback()
 					logger=tb_logger,
 					strategy="ddp_find_unused_parameters_false",
 					check_val_every_n_epoch=1,
 					log_every_n_steps = 1,
 					num_sanity_val_steps=-1,
 					profiler="simple",
-					fast_dev_run=True,
-					auto_scale_batch_size=False)
+					fast_dev_run=False,
+					auto_scale_batch_size=False,
+					detect_anomaly=True
+					)
 	
 	#trainer.tune(model)
 	#print(f'Max batch size fit on memory: {model.batch_size}\n')
@@ -220,6 +248,7 @@ def test(args):
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
 	dataset_file = args.dataset_file
+	net_type="mimo_ph_diff"
 
 	if 0:
 		T60 = args.T60 
@@ -267,14 +296,14 @@ def test(args):
 	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}'
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
-
-	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=16,
+	precision = 32
+	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision,
 						callbacks=[ DOAcallbacks()], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
 	
-	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, \n \
+	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, precision: {precision}, \n \
 		ckpt_dir: {ckpt_dir}, exp_name: {exp_name}, \n \
 		model: {args.model_path}, ref_mic_idx : {ref_mic_idx}, \n \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition} \n"
@@ -285,13 +314,14 @@ def test(args):
 
 	if os.path.exists(os.path.join(ckpt_dir, args.model_path)):
 		model = DCCRN_model.load_from_checkpoint(os.path.join(ckpt_dir, args.model_path), bidirectional=bidirectional, 
-		        								train_dataset=None, val_dataset=None)
+		        								train_dataset=None, val_dataset=None, net_type=net_type)
 		trainer.test(model, dataloaders=test_loader)
 	else:
 		print(f"Model path not found in {ckpt_dir}")
 
 if __name__=="__main__":
 	#flags
+	#torch.autograd.set_detect_anomaly(True)
 	args = parser.parse_args()
 	if args.train:
 		main(args)

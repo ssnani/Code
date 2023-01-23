@@ -245,7 +245,7 @@ def blk_vad(frm_level_vad, block_size):
 
 
 
-#torch implementation
+#torch implementation : yet to be implemented
 def batch_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist):
 
     (chan, frames, freq) = X.shape

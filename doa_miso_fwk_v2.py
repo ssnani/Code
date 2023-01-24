@@ -29,8 +29,8 @@ class DOA_MISO_fwk(pl.LightningModule):
 		
 		self.model_path_0 = model_path_0 #'/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_0/epoch=50-step=2295.ckpt'
 		self.model_path_1 = model_path_1 #'/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_1/epoch=50-step=2295.ckpt'
-		self.model_0 = DCCRN_model.load_from_checkpoint(self.model_path_0, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
-		self.model_1 = DCCRN_model.load_from_checkpoint(self.model_path_1, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
+		self.model_0 = DCCRN_model.load_from_checkpoint(self.model_path_0, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None, net_type="miso")
+		self.model_1 = DCCRN_model.load_from_checkpoint(self.model_path_1, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None, net_type="miso")
 
 	
 	def forward(self, input_batch):
@@ -143,14 +143,14 @@ def test_doa(args):
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 
-
-	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=16,
+	precision=32
+	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision, #16,
 						callbacks=[DOAcallbacks(dataset_dtype=dataset_dtype, dataset_condition=dataset_condition)],
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
 	
-	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, \n \
+	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, precision: {precision}, \n \
 		ckpt_dir: {ckpt_dir}, exp_name: {exp_name}, \n \
 		model_0: {args.model_path_0}, model_1: {args.model_path_1}, ref_mic_idx : {ref_mic_idx}, \n \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition} \n"

@@ -123,7 +123,12 @@ class DCCRN_model(pl.LightningModule):
 				else:
 					_est_ri_spec = torch.permute(est_ri_spec,[2,1,0])  #(2,T,F) -> (F,T,2)
 				est_sig = torch.istft(_est_ri_spec, 320,160,320,torch.hamming_window(320).type_as(_est_ri_spec))
-				n_sig, _ = est_sig.shape
+				
+				if len(est_sig.shape)> 1:
+					n_sig, _ = est_sig.shape
+				else:
+					n_sig=1
+
 				if n_sig==2:
 					#rank_zero_only
 					tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}_0', est_sig[[0],:]/torch.max(torch.abs(est_sig[[0],:])), sample_rate=16000)

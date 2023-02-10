@@ -32,14 +32,17 @@ class LossFunction(object):
         #loss_mag_frm = torch.sum(mag,dim=3)
 
 
-        return loss, loss_ri, loss_mag
+        #tried loss_ph over loss_ri -> didn't work
+        loss_ph = 0
+
+        return loss, loss_ri, loss_mag, loss_ph
 
 
 class MIMO_LossFunction(object):
     def __init__(self):
         self.eps = torch.finfo(torch.float32).eps
 
-    def __call__(self, est, lbl):
+    def __call__(self, est, lbl, epoch):
         batch_size, n_ch, n_frames, n_feats = est.shape
 
         lbl_mag_1, lbl_ph_1, lbl_mag_2, lbl_ph_2 = self.get_mag_ph(lbl)
@@ -81,8 +84,11 @@ class MIMO_LossFunction(object):
         #frame level metrics
         #loss_ri_frm = torch.sum(ri,dim=3)
         #loss_mag_frm = torch.sum(mag,dim=3)
+        
+        # tried ILD didn't work out over IPD , code got deleted
+        loss_mag_diff=0
 
-        return loss, loss_ri, loss_mag, loss_ph_diff
+        return loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff
 
     
     def get_mag_ph(self,x):
@@ -100,7 +106,6 @@ class MIMO_LossFunction(object):
         est_mag_2, est_ph_2 = torch.abs(est_c_2), torch.angle(est_c_2)
         """
         return est_mag_1, est_ph_1, est_mag_2, est_ph_2
-
 
 
 if __name__=="__main__":

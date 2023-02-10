@@ -14,8 +14,8 @@ from locata_utils import *
 from debug import dbg_print
 
 from controlled_config import ControlledConfig
-from rir_interface import taslp_RIR_Interface
-from array_setup import array_setup_10cm_2mic
+from rir_interface import taslp_RIR_Interface, taslp_real_RIR_Interface
+from array_setup import get_array_set_up_from_config
 from locata_utils import cart2sph
 from scipy.signal import fftconvolve
 
@@ -71,7 +71,7 @@ class MovingSourceDataset(Dataset):
 
 	# Currently supported for > 10 sec utterances
 
-	def __init__(self, dataset_info_file, array_setup, transforms: list =None, size=None, T60=None, SNR=None, dataset_dtype=None, dataset_condition=None, train_flag=None):
+	def __init__(self, dataset_info_file, array_config: dict, transforms: list =None, size=None, T60=None, SNR=None, dataset_dtype=None, dataset_condition=None, train_flag=None):
 		# T60, SNR : if provided during initialization is ONLY considered for training and NOT from config file
  
 		with open(dataset_info_file, 'r') as f:
@@ -79,11 +79,13 @@ class MovingSourceDataset(Dataset):
 
 		self.fs = 16000
 
-		self.array_setup = array_setup
+		self.array_config = array_config
+		self.array_setup = array_config['array_setup']
 		self.transforms = transforms if transforms is not None else None
 		self.size = size
 
-		self.rir_interface = taslp_RIR_Interface() 
+		self.rir_interface = taslp_RIR_Interface( array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size']) if "real_rirs" not in array_config \
+			                 else taslp_real_RIR_Interface(dist=array_config['dist'])
 		self.T = 4 
 		self.T60 = T60      
 		self.SNR = SNR
@@ -196,12 +198,23 @@ class MovingSourceDataset(Dataset):
 			SNR = self.SNR if self.SNR is not None else cfg['snr']
 
 		src_azimuth = np.degrees(cart2sph(src_traj_pts - array_pos)[:,2])
-		src_azimuth_keys = np.round(np.where(src_azimuth<0, 360+src_azimuth, src_azimuth)).astype('int32')	
+		if "real_rirs" not in self.array_config:
+			src_azimuth_keys = np.round(np.where(src_azimuth<0, 360+src_azimuth, src_azimuth)).astype('int32')	
+		else:
+			# aachen database - 15 degree rir intervals(0:15:180)
+			src_azimuth_keys = (src_azimuth//15).astype('int32')
 
+		print(src_azimuth, src_azimuth_keys)
 		source_rirs, dp_source_rirs = self.rir_interface.get_rirs(t60=T60, idx_list=list(src_azimuth_keys))
 
 		noi_azimuth = np.degrees(cart2sph(noise_pos - array_pos)[:,2])
-		noi_azimuth_keys = np.round(np.where(noi_azimuth<0, 360+noi_azimuth, noi_azimuth)).astype('int32')	
+		if  "real_rirs" not in self.array_config:
+			noi_azimuth_keys = np.round(np.where(noi_azimuth<0, 360+noi_azimuth, noi_azimuth)).astype('int32')	
+		else:
+			# aachen database - 15 degree rir intervals(0:15:180)
+			noi_azimuth_keys = (noi_azimuth//15).astype('int32')
+		#print(noi_azimuth, noi_azimuth_keys)
+		
 		noise_rirs, _ = self.rir_interface.get_rirs(t60=T60, idx_list=list(noi_azimuth_keys))
 
 		dbg_print(f'src: {src_azimuth}, noise: {noi_azimuth}\n')
@@ -359,8 +372,13 @@ if __name__=="__main__":
 	SNR=5
 	dataset_dtype="stationary"
 	dataset_condition="reverb"
+	array_config = {}
 
-	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, size=1, transforms=None, T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #[NetworkInput(320, 160, 0)]) #
+	array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'] = 'linear', 2, 10
+
+	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
+
+	train_dataset = MovingSourceDataset(dataset_file, array_config, size=1, transforms=None, T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #[NetworkInput(320, 160, 0)]) #
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
 	for _batch_idx, val in enumerate(train_loader):
@@ -368,7 +386,7 @@ if __name__=="__main__":
 		        tgt_sig: {val[1].shape}, {val[1].dtype}, {val[1].device} \
 				doa: {val[2].shape}, {val[2].dtype}, {val[2].device} \n")
 
-		torchaudio.save(f'{logs_dir}{dataset_condition}_sig_{dataset_dtype}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
-		torchaudio.save(f'{logs_dir}{dataset_condition}_tgt_{dataset_dtype}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)
+		#torchaudio.save(f'{logs_dir}{dataset_condition}_sig_{dataset_dtype}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
+		#torchaudio.save(f'{logs_dir}{dataset_condition}_tgt_{dataset_dtype}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)
 
 		#break

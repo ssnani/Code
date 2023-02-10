@@ -8,7 +8,7 @@ from pytorch_lightning.utilities.types import STEP_OUTPUT
 from typing import Any, Optional
 
 from metrics import eval_metrics_batch_v1, _mag_spec_mask, gettdsignal_mag_spec_mask
-from masked_gcc_phat import gcc_phat, compute_vad, gcc_phat_loc_orient, block_doa, blk_vad #, get_acc
+from masked_gcc_phat import gcc_phat, compute_vad, gcc_phat_loc_orient, block_doa, blk_vad, block_lbl_doa #, get_acc
 from array_setup import array_setup_10cm_2mic
 import numpy as np
 
@@ -44,8 +44,6 @@ def gradient_norm_per_layer(model):
 			grad_data_ratio[layer_name] = param_grad_std/param_std
 	#total_norm = total_norm ** (1. / 2)
 	return total_norm, grad_data_ratio
-
-
 
 class Losscallbacks(Callback):
 	def __init__(self):
@@ -162,14 +160,14 @@ class Losscallbacks(Callback):
 		"""
 		return
 
-
-
 class DOAcallbacks(Callback):
-	def __init__(self, array_setup=array_setup_10cm_2mic, dataset_dtype=None, dataset_condition=None):
+	def __init__(self, array_config, dataset_dtype=None, dataset_condition=None):
 		self.frame_size = 320
 		self.frame_shift = 160    #TODO
 		#Computing DOA ( F -> T -> F) bcz of vad
-		self.array_setup = array_setup
+		#self.array_setup = array_setup
+		self.array_config = array_config
+		self.array_setup=array_config['array_setup']
 		self.local_mic_pos = torch.from_numpy(self.array_setup.mic_pos)
 		self.local_mic_center=torch.from_numpy(np.array([0.0, 0.0, 0.0]))
 
@@ -221,7 +219,7 @@ class DOAcallbacks(Callback):
 		#print(f'n_blocks: {n_blocks}, non_vad_blks: {non_vad_blks}')
 		return acc
 
-	def _batch_metrics(self, batch, outputs):
+	def _batch_metrics(self, batch, outputs, batch_idx):
 		mix_ri_spec, tgt_ri_spec, doa = batch
 		est_ri_spec = outputs['est_ri_spec']  #(b, n_ch, T, F)
 
@@ -230,8 +228,11 @@ class DOAcallbacks(Callback):
 		mix_sig = self.format_istft(mix_ri_spec)
 		est_sig = self.format_istft(est_ri_spec)
 		tgt_sig = self.format_istft(tgt_ri_spec)
-
-
+		
+		torchaudio.save(f'../signals/real_rirs_dbg/mix_{batch_idx}.wav', (mix_sig/torch.max(torch.abs(mix_sig))).cpu(), sample_rate=16000)
+		torchaudio.save(f'../signals/real_rirs_dbg/tgt_{batch_idx}.wav', (tgt_sig/torch.max(torch.abs(tgt_sig))).cpu(), sample_rate=16000)
+		torchaudio.save(f'../signals/real_rirs_dbg/est_{batch_idx}.wav', (est_sig/torch.max(torch.abs(est_sig))).cpu(), sample_rate=16000)
+		
 		mix_metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), mix_sig.cpu().numpy())
 		self.log("MIX_SNR", mix_metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("MIX_STOI", mix_metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
@@ -261,10 +262,13 @@ class DOAcallbacks(Callback):
 
 
 		#Vad 
-		sig_vad_1 = compute_vad(tgt_sig[0,:].cpu().numpy(), self.frame_size, self.frame_shift)
-		sig_vad_2 = compute_vad(tgt_sig[1,:].cpu().numpy(), self.frame_size, self.frame_shift)
+		vad_comp_sig = tgt_sig if "real_rirs" not in self.array_config else est_sig
+		
+		sig_vad_1 = compute_vad(vad_comp_sig[0,:].cpu().numpy(), self.frame_size, self.frame_shift)
+		sig_vad_2 = compute_vad(vad_comp_sig[1,:].cpu().numpy(), self.frame_size, self.frame_shift)
 		tgt_sig_vad = sig_vad_1*sig_vad_2
 		tgt_sig_vad = tgt_sig_vad.to(device=tgt_sig.device)
+
 
 		mix_spec_cmplx = self.format_complex(mix_ri_spec)
 		tgt_spec_cmplx = self.format_complex(tgt_ri_spec)
@@ -274,9 +278,13 @@ class DOAcallbacks(Callback):
 		tgt_f_doa, tgt_f_vals, tgt_utt_doa, _, _ = gcc_phat_loc_orient(tgt_spec_cmplx, torch.abs(tgt_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=False)
 		est_f_doa, est_f_vals, est_utt_doa, _, _ = gcc_phat_loc_orient(est_spec_cmplx, torch.abs(est_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=False)
 
+		if "real_rirs" not in self.array_config:
+			ref_f_doa = tgt_f_doa
+		else:
+			ref_f_doa = torch.rad2deg(doa[:,:,-1])[0,:mix_f_doa.shape[0]]
 		
-		mix_frm_Acc = self.get_acc(tgt_sig_vad, mix_f_doa, tgt_f_doa, vad_th=0.6)
-		est_frm_Acc = self.get_acc(tgt_sig_vad, est_f_doa, tgt_f_doa,vad_th=0.6)
+		mix_frm_Acc = self.get_acc(tgt_sig_vad, mix_f_doa, ref_f_doa, vad_th=0.6)
+		est_frm_Acc = self.get_acc(tgt_sig_vad, est_f_doa, ref_f_doa, vad_th=0.6)
 
 
 		blk_size = 25
@@ -287,8 +295,13 @@ class DOAcallbacks(Callback):
 		#lbl_blk_doa, lbl_blk_range = block_lbl_doa(lbl_doa, block_size=blk_size)
 		tgt_blk_vad = blk_vad(tgt_sig_vad, blk_size)
 		#breakpoint()
-		mix_Acc = self.get_acc(tgt_blk_vad, mix_blk_vals, tgt_blk_vals)
-		est_Acc = self.get_acc(tgt_blk_vad, est_blk_vals, tgt_blk_vals)
+		if "real_rirs" not in self.array_config:
+			ref_blk_vals = tgt_blk_vals
+		else:
+			ref_blk_vals, _ = block_lbl_doa(doa, block_size=blk_size)#block_doa(frm_val=ref_f_doa, block_size=blk_size)
+
+		mix_Acc = self.get_acc(tgt_blk_vad, mix_blk_vals, ref_blk_vals)
+		est_Acc = self.get_acc(tgt_blk_vad, est_blk_vals, ref_blk_vals)
 
 		
 		#print(mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
@@ -297,7 +310,15 @@ class DOAcallbacks(Callback):
 		self.log("est_frm_Acc", est_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_blk_Acc", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_blk_Acc", est_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-
+		
+		
+		torch.save({'mix': (mix_f_doa, mix_f_vals),
+					'tgt': (tgt_f_doa, tgt_f_vals, tgt_sig_vad),
+					'est': (est_f_doa, est_f_vals),
+					'doa': doa }, 
+					f'../signals/real_rirs_dbg/doa_{batch_idx}.pt', 
+			)
+		
 		return
 
 
@@ -311,7 +332,7 @@ class DOAcallbacks(Callback):
 		dataloader_idx: int,
 		) -> None:
 
-		self._batch_metrics(batch, outputs)
+		self._batch_metrics(batch, outputs, batch_idx)
 		"""
 		pp_str = f'../signals/tr_s_test_{self.dataset_dtype}_{self.dataset_condition}_{app_str}'    # from_datasetfile_10sec/v2/'
 				
@@ -338,4 +359,4 @@ class DOAcallbacks(Callback):
 		dataloader_idx: int,
 		) -> None:
 
-		self._batch_metrics(batch, outputs)
+		self._batch_metrics(batch, outputs, batch_idx)

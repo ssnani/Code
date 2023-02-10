@@ -12,7 +12,7 @@ import os
 import sys 
 import random
 from dataset import MovingSourceDataset, NetworkInput
-from array_setup import array_setup_10cm_2mic
+from array_setup import get_array_set_up_from_config
 from networks import Net, MIMO_Net
 from loss_criterion import LossFunction, MIMO_LossFunction
 from arg_parser import parser
@@ -54,58 +54,66 @@ class DCCRN_model(pl.LightningModule):
 		return est_ri_spec, tgt_ri_spec
 
 
+
 	def training_step(self, train_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(train_batch)
 		
 		if "mimo_ph_diff" == self.net_type:
-			loss, loss_ri, loss_mag, loss_ph_diff = self.loss(est_ri_spec, tgt_ri_spec)
+			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
 		else:
-			loss, loss_ri, loss_mag = self.loss(est_ri_spec, tgt_ri_spec)
+			loss, loss_ri, loss_mag, loss_ph = self.loss(est_ri_spec, tgt_ri_spec)
 
 		self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-		self.log('loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+		self.log('loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )	
 		if self.net_type=="mimo_ph_diff":
 			self.log('loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, "est_ri_spec" : est_ri_spec }
+			self.log('loss_mag_diff', loss_mag_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, 'loss_mag_diff': loss_mag_diff, "est_ri_spec" : est_ri_spec }
 		else:
-			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec } 
+			self.log('loss_ph', loss_ph, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, 'loss_ph': loss_ph, "est_ri_spec" : est_ri_spec } 
 
 
 	def validation_step(self, val_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(val_batch)
 		
 		if "mimo_ph_diff" == self.net_type:
-			loss, loss_ri, loss_mag, loss_ph_diff = self.loss(est_ri_spec, tgt_ri_spec)
+			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
 		else:
-			loss, loss_ri, loss_mag  = self.loss(est_ri_spec, tgt_ri_spec) 
+			loss, loss_ri, loss_mag, loss_ph  = self.loss(est_ri_spec, tgt_ri_spec) 
 
 		self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('val_loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('val_loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		if self.net_type=="mimo_ph_diff":
 			self.log('val_loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, "est_ri_spec" : est_ri_spec }
+			self.log('val_loss_mag_diff', loss_mag_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, 'loss_mag_diff': loss_mag_diff, "est_ri_spec" : est_ri_spec }
 		else:
-			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec } 
+			self.log('val_loss_ph', loss_ph, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, 'loss_ph': loss_ph, "est_ri_spec" : est_ri_spec } 
 
 
 	def test_step(self, test_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(test_batch)
 
 		if "mimo_ph_diff" == self.net_type:
-			loss, loss_ri, loss_mag, loss_ph_diff = self.loss(est_ri_spec, tgt_ri_spec)
+			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
 		else:
-			loss, loss_ri, loss_mag  = self.loss(est_ri_spec, tgt_ri_spec) 
+			loss, loss_ri, loss_mag, loss_ph  = self.loss(est_ri_spec, tgt_ri_spec) 
 
 		self.log('test_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('test_loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('test_loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		if self.net_type=="mimo_ph_diff":
 			self.log('test_loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, "est_ri_spec" : est_ri_spec }
+			self.log('test_loss_mag_diff', loss_mag_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, 'loss_mag_diff': loss_mag_diff, "est_ri_spec" : est_ri_spec }
+
 		else:
-			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "est_ri_spec" : est_ri_spec }
+			self.log('test_loss_ph', loss_ph, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
+			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, 'loss_ph': loss_ph, "est_ri_spec" : est_ri_spec }
 
 
 	def validation_epoch_end(self, validation_step_outputs):
@@ -149,6 +157,7 @@ def main(args):
 		with open(args.input_train_filename, 'r') as f:
 			lines = [line for line in f.readlines()]
 
+		array_config = {}
 		#key value 
 		for line in lines:
 			lst = line.strip().split()
@@ -162,6 +171,14 @@ def main(args):
 				dataset_file = lst[1]
 			elif lst[0]=="val_dataset_file":
 				val_dataset_file = lst[1]
+			elif lst[0]=="array_type":
+				array_config['array_type'] = lst[1]
+			elif lst[0]=="num_mics":
+				array_config['num_mics'] = int(lst[1])
+			elif lst[0]=="intermic_dist":
+				array_config['intermic_dist'] = float(lst[1])
+			elif lst[0]=="room_size":
+				array_config['room_size'] = [lst[1], lst[2], lst[3]]
 			else:
 				continue
 	
@@ -179,13 +196,13 @@ def main(args):
 		dataset_file = args.dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
 		val_dataset_file = args.val_dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
 
-
-	train_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
+	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
+	train_dataset = MovingSourceDataset(dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
 										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #, size=2
 
 
 	
-	dev_dataset = MovingSourceDataset(val_dataset_file, array_setup_10cm_2mic, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
+	dev_dataset = MovingSourceDataset(val_dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #, size=2
 
 
@@ -219,7 +236,8 @@ def main(args):
 	lr_monitor = LearningRateMonitor(logging_interval='step')
 
 	# training
-	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=32,
+	precision=16*2
+	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision,
 					max_epochs = args.max_n_epochs,
 					callbacks=[checkpoint_callback, model_summary, lr_monitor],# pesq_checkpoint_callback, stoi_checkpoint_callback, DOAcallbacks()], early_stopping, GradNormCallback()
 					logger=tb_logger,
@@ -230,13 +248,15 @@ def main(args):
 					profiler="simple",
 					fast_dev_run=False,
 					auto_scale_batch_size=False,
-					detect_anomaly=True
+					detect_anomaly=True#,
+					#gradient_clip_val=0.5
 					)
 	
 	#trainer.tune(model)
 	#print(f'Max batch size fit on memory: {model.batch_size}\n')
 				
-	msg = f"Train Config: bidirectional: {bidirectional}, T: {T} , net_type: {net_type}, \n\
+	msg = f"Train Config: bidirectional: {bidirectional}, T: {T} , net_type: {net_type}, precision: {precision}, \n \
+		array_type: {array_config['array_type']}, num_mics: {array_config['num_mics']}, intermic_dist: {array_config['intermic_dist']}, room_size: {array_config['room_size']} \n, \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n \
 		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir}, exp_name: {exp_name} \n"
 
@@ -266,6 +286,7 @@ def test(args):
 
 		T60 = None
 		SNR = None
+		array_config = {}
 		#key value 
 		for line in lines:
 			lst = line.strip().split()
@@ -273,12 +294,26 @@ def test(args):
 				T60 = float(lst[1])
 			elif lst[0]=="SNR":
 				SNR = float(lst[1])
+			elif lst[0]=="array_type":
+				array_config['array_type'] = lst[1]
+			elif lst[0]=="num_mics":
+				array_config['num_mics'] = int(lst[1])
+			elif lst[0]=="intermic_dist":
+				array_config['intermic_dist'] = float(lst[1])
+			elif lst[0]=="room_size":
+				array_config['room_size'] = [lst[1], lst[2], lst[3]]
+			elif lst[0]=="real_rirs":
+				array_config["real_rirs"] = True
+			elif lst[0]=="dist":
+				array_config["dist"] = int(lst[1])
 			else:
 				continue
 	
 	dataset_condition = args.dataset_condition
 	dataset_dtype = args.dataset_dtype
-	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic,# size=1,
+	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
+	
+	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #
 	test_loader = DataLoader(test_dataset, batch_size = args.batch_size,
@@ -303,7 +338,7 @@ def test(args):
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision,
-						callbacks=[ DOAcallbacks()], #Losscallbacks(),
+						callbacks=[ DOAcallbacks(array_config=array_config)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional

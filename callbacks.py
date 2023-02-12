@@ -228,11 +228,16 @@ class DOAcallbacks(Callback):
 		mix_sig = self.format_istft(mix_ri_spec)
 		est_sig = self.format_istft(est_ri_spec)
 		tgt_sig = self.format_istft(tgt_ri_spec)
-		
+
+		#normalize the signals --- observed improves webrtc vad 
+		mix_sig = mix_sig/torch.max(torch.abs(mix_sig))
+		tgt_sig = tgt_sig/torch.max(torch.abs(tgt_sig))
+		est_sig = est_sig/torch.max(torch.abs(est_sig))
+		"""
 		torchaudio.save(f'../signals/real_rirs_dbg/mix_{batch_idx}.wav', (mix_sig/torch.max(torch.abs(mix_sig))).cpu(), sample_rate=16000)
 		torchaudio.save(f'../signals/real_rirs_dbg/tgt_{batch_idx}.wav', (tgt_sig/torch.max(torch.abs(tgt_sig))).cpu(), sample_rate=16000)
 		torchaudio.save(f'../signals/real_rirs_dbg/est_{batch_idx}.wav', (est_sig/torch.max(torch.abs(est_sig))).cpu(), sample_rate=16000)
-		
+		"""
 		mix_metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), mix_sig.cpu().numpy())
 		self.log("MIX_SNR", mix_metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("MIX_STOI", mix_metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
@@ -311,14 +316,14 @@ class DOAcallbacks(Callback):
 		self.log("mix_blk_Acc", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_blk_Acc", est_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		
-		
+		"""
 		torch.save({'mix': (mix_f_doa, mix_f_vals),
 					'tgt': (tgt_f_doa, tgt_f_vals, tgt_sig_vad),
 					'est': (est_f_doa, est_f_vals),
 					'doa': doa }, 
 					f'../signals/real_rirs_dbg/doa_{batch_idx}.pt', 
 			)
-		
+		"""
 		return
 
 

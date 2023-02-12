@@ -15,8 +15,8 @@ array_setup_10cm_2mic = ArraySetup(arrayType='planar',
 
 array_setup_8cm_2mic = ArraySetup(arrayType='planar', 
                                     orV = np.array([0.0, 0.0, 1.0]),
-                                    mic_pos = np.array((( 0.04,  0.000, 0.000),
-                                                        (-0.04,  0.000, 0.000))), 
+                                    mic_pos = np.array((( -0.04,  0.000, 0.000),
+                                                        (  0.04,  0.000, 0.000))), 
                                     mic_orV = np.array(((0.0, 0.0, 1.0),
                                                         (0.0, 0.0, 1.0))), 
                                     mic_pattern = 'omni'

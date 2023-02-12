@@ -107,7 +107,7 @@ class taslp_real_RIR_Interface():
     def get_rirs(self, t60: float, idx_list: "list integer degrees" ):
         t60_key = self.t60_list.index(t60)
         #rir
-        #idx_list = [12-idx for idx in idx_list]
+        idx_list = [12-idx for idx in idx_list]
         return self.rirs_list[t60_key][idx_list,3:5,:], self.dp_rirs_list[t60_key][idx_list,3:5,:] #(nb_points,  2(n_mics), rir_len)) picking 8cm intermic dist
 
 if __name__=="__main__":

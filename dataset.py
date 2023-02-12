@@ -202,7 +202,7 @@ class MovingSourceDataset(Dataset):
 			src_azimuth_keys = np.round(np.where(src_azimuth<0, 360+src_azimuth, src_azimuth)).astype('int32')	
 		else:
 			# aachen database - 15 degree rir intervals(0:15:180)
-			src_azimuth_keys = (src_azimuth//15).astype('int32')
+			src_azimuth_keys = np.round((src_azimuth/15)).astype('int32')
 
 		print(src_azimuth, src_azimuth_keys)
 		source_rirs, dp_source_rirs = self.rir_interface.get_rirs(t60=T60, idx_list=list(src_azimuth_keys))
@@ -212,7 +212,7 @@ class MovingSourceDataset(Dataset):
 			noi_azimuth_keys = np.round(np.where(noi_azimuth<0, 360+noi_azimuth, noi_azimuth)).astype('int32')	
 		else:
 			# aachen database - 15 degree rir intervals(0:15:180)
-			noi_azimuth_keys = (noi_azimuth//15).astype('int32')
+			noi_azimuth_keys = np.round((noi_azimuth/15)).astype('int32')
 		#print(noi_azimuth, noi_azimuth_keys)
 		
 		noise_rirs, _ = self.rir_interface.get_rirs(t60=T60, idx_list=list(noi_azimuth_keys))
@@ -374,11 +374,11 @@ if __name__=="__main__":
 	dataset_condition="reverb"
 	array_config = {}
 
-	array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'] = 'linear', 2, 10
+	array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size'] = 'linear', 2, 8.0, [6,6,2.4]
 
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 
-	train_dataset = MovingSourceDataset(dataset_file, array_config, size=1, transforms=None, T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #[NetworkInput(320, 160, 0)]) #
+	train_dataset = MovingSourceDataset(dataset_file, array_config, size=1, transforms=[NetworkInput(320, 160, -1)], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #[NetworkInput(320, 160, 0)]) #
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
 	for _batch_idx, val in enumerate(train_loader):

@@ -313,7 +313,7 @@ def test(args):
 	dataset_dtype = args.dataset_dtype
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	
-	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=5,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #
 	test_loader = DataLoader(test_dataset, batch_size = args.batch_size,

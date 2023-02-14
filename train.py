@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSum
 import os
 import sys 
 import random
-from dataset import MovingSourceDataset, NetworkInput
+from dataset_v2 import MovingSourceDataset, NetworkInput
 from array_setup import get_array_set_up_from_config
 from networks import Net, MIMO_Net
 from loss_criterion import LossFunction, MIMO_LossFunction
@@ -52,8 +52,6 @@ class DCCRN_model(pl.LightningModule):
 		mix_ri_spec, tgt_ri_spec, doa = input_batch
 		est_ri_spec = self.model(mix_ri_spec)
 		return est_ri_spec, tgt_ri_spec
-
-
 
 	def training_step(self, train_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(train_batch)
@@ -189,21 +187,25 @@ def main(args):
 
 		dataset_dtype = args.dataset_dtype
 		dataset_condition = args.dataset_condition
-
 		#Loading datasets
 		#scenario = args.scenario
 		
 		dataset_file = args.dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
 		val_dataset_file = args.val_dataset_file #f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}.txt'
 
+	noise_simulation = args.noise_simulation
+	diffuse_files_path = args.diffuse_files_path
+	
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	train_dataset = MovingSourceDataset(dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
-										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #, size=2
+										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
+										noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=2
 
 
 	
 	dev_dataset = MovingSourceDataset(val_dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
-									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train) #, size=2
+									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
+									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=2
 
 
 	# model

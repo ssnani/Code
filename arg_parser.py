@@ -32,7 +32,17 @@ parser.add_argument('--dataset_dtype',
 parser.add_argument('--dataset_condition',
                     type=str,
                     default='',
-                    help='["ideal", "noisy", "reverb", "noisy_reverb"]')            
+                    help='["ideal", "noisy", "reverb", "noisy_reverb"]')     
+
+parser.add_argument('--noise_simulation',
+                    type=str,
+                    default='',
+                    help='point_source vs diffuse')
+
+parser.add_argument('--diffuse_files_path',
+                    type=str,
+                    default='',
+                    help='path of file containing noi files for diffuse simulation')          
 
 parser.add_argument('--ref_mic_idx',
                     type=int,

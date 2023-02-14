@@ -112,10 +112,10 @@ class taslp_real_RIR_Interface():
 
 if __name__=="__main__":
     array_type, num_mics, intermic_dist,  room_size = 'linear', 2, 10.0,  ['8', '8', '3']
-    #rir_interface = taslp_RIR_Interface(array_type, num_mics, intermic_dist, room_size)
-    #rirs, dp_rirs = rir_interface.get_rirs(t60=0.0, idx_list=[4])
+    rir_interface = taslp_RIR_Interface(array_type, num_mics, intermic_dist, room_size)
+    rirs, dp_rirs = rir_interface.get_rirs(t60=0.4, idx_list=[4,5,6])
     breakpoint()
-    real_rir_interface = taslp_real_RIR_Interface(dist=1)
-    rirs, dp_rirs = real_rir_interface.get_rirs(t60=0.16, idx_list=[4])
+    #real_rir_interface = taslp_real_RIR_Interface(dist=1)
+    #rirs, dp_rirs = real_rir_interface.get_rirs(t60=0.16, idx_list=[4])
     breakpoint()
     print(rirs.shape)

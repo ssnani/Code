@@ -16,9 +16,9 @@ srun ~/.conda/envs/moving_source/bin/python train.py --num_nodes=$1 \
                   --batch_size=64 \
                   --max_n_epochs=100 \
                   --num_workers=4 \
-                  --ckpt_dir=/scratch/bbje/battula12/ControlledExp/random_seg/diffuse_noise/Linear_array_10cm/MISO_RI_MAG \
+                  --ckpt_dir=/scratch/bbje/battula12/ControlledExp/random_seg/Linear_array_8cm_dp_rir_t60_0/ \
                   --exp_name=CircularMotion \
                   --resume_model=last.ckpt \
-                  --net_type=miso \
+                  --net_type=mimo_ph_diff \
                   --array_job \
                   --input_train_filename=$3

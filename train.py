@@ -20,19 +20,19 @@ from debug import dbg_print
 from callbacks import Losscallbacks, DOAcallbacks, GradNormCallback
 
 class DCCRN_model(pl.LightningModule):
-	def __init__(self, bidirectional, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, net_type=None):
+	def __init__(self, bidirectional, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, loss_flag=None):
 		super().__init__()
 		pl.seed_everything(77)
 
-		self.model = MIMO_Net(bidirectional) if "mimo" in net_type else Net(bidirectional) # in 
-		self.loss = MIMO_LossFunction() if "mimo" in net_type else LossFunction()
+		self.model = MIMO_Net(bidirectional) if "MIMO" in loss_flag else Net(bidirectional) # in 
+		self.loss = MIMO_LossFunction(loss_flag) if "MIMO" in loss_flag else LossFunction(loss_flag)
 
 		self.batch_size = batch_size
 		self.num_workers = num_workers
 		self.train_dataset = train_dataset
 		self.val_dataset = val_dataset
 
-		self.net_type = net_type
+		self.loss_flag = loss_flag
 
 	def train_dataloader(self):
 		return DataLoader(self.train_dataset, batch_size = self.batch_size, 
@@ -56,7 +56,7 @@ class DCCRN_model(pl.LightningModule):
 	def training_step(self, train_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(train_batch)
 		
-		if "mimo_ph_diff" == self.net_type:
+		if "MIMO" in self.loss_flag:
 			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
 		else:
 			loss, loss_ri, loss_mag, loss_ph = self.loss(est_ri_spec, tgt_ri_spec)
@@ -64,7 +64,7 @@ class DCCRN_model(pl.LightningModule):
 		self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )	
-		if self.net_type=="mimo_ph_diff":
+		if "MIMO" in self.loss_flag:
 			self.log('loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 			self.log('loss_mag_diff', loss_mag_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, 'loss_mag_diff': loss_mag_diff, "est_ri_spec" : est_ri_spec }
@@ -76,7 +76,7 @@ class DCCRN_model(pl.LightningModule):
 	def validation_step(self, val_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(val_batch)
 		
-		if "mimo_ph_diff" == self.net_type:
+		if "MIMO" in self.loss_flag:
 			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
 		else:
 			loss, loss_ri, loss_mag, loss_ph  = self.loss(est_ri_spec, tgt_ri_spec) 
@@ -84,7 +84,7 @@ class DCCRN_model(pl.LightningModule):
 		self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('val_loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('val_loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-		if self.net_type=="mimo_ph_diff":
+		if "MIMO" in self.loss_flag:
 			self.log('val_loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 			self.log('val_loss_mag_diff', loss_mag_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, 'loss_mag_diff': loss_mag_diff, "est_ri_spec" : est_ri_spec }
@@ -96,7 +96,7 @@ class DCCRN_model(pl.LightningModule):
 	def test_step(self, test_batch, batch_idx):
 		est_ri_spec, tgt_ri_spec = self.forward(test_batch)
 
-		if "mimo_ph_diff" == self.net_type:
+		if "MIMO" in self.loss_flag:
 			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
 		else:
 			loss, loss_ri, loss_mag, loss_ph  = self.loss(est_ri_spec, tgt_ri_spec) 
@@ -104,7 +104,7 @@ class DCCRN_model(pl.LightningModule):
 		self.log('test_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('test_loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log('test_loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
-		if self.net_type=="mimo_ph_diff":
+		if "MIMO" in self.loss_flag:
 			self.log('test_loss_ph_diff', loss_ph_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 			self.log('test_loss_mag_diff', loss_mag_diff, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 			return {"loss" : loss , "loss_ri": loss_ri, "loss_mag": loss_mag, "loss_ph_diff": loss_ph_diff, 'loss_mag_diff': loss_mag_diff, "est_ri_spec" : est_ri_spec }
@@ -145,7 +145,6 @@ class DCCRN_model(pl.LightningModule):
 def main(args):
 	dbg_print(f"{torch.cuda.is_available()}, {torch.cuda.device_count()}\n")
 	T = 4
-	net_type = args.net_type
 	#array jobs code changes
 	#reading from file for array jobs
 	if args.array_job:
@@ -177,6 +176,8 @@ def main(args):
 				array_config['intermic_dist'] = float(lst[1])
 			elif lst[0]=="room_size":
 				array_config['room_size'] = [lst[1], lst[2], lst[3]]
+			elif lst[0]=="loss":
+				loss_flag = lst[1]
 			else:
 				continue
 	
@@ -210,12 +211,12 @@ def main(args):
 
 	# model
 	bidirectional = args.bidirectional
-	model = DCCRN_model(bidirectional, train_dataset, dev_dataset, args.batch_size, args.num_workers, net_type)
+	model = DCCRN_model(bidirectional, train_dataset, dev_dataset, args.batch_size, args.num_workers, loss_flag)
 
 
 	## exp path directories
 
-	ckpt_dir = f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
 	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
 	msg_pre_trained = None
@@ -257,7 +258,7 @@ def main(args):
 	#trainer.tune(model)
 	#print(f'Max batch size fit on memory: {model.batch_size}\n')
 				
-	msg = f"Train Config: bidirectional: {bidirectional}, T: {T} , net_type: {net_type}, precision: {precision}, \n \
+	msg = f"Train Config: bidirectional: {bidirectional}, T: {T} , loss_flag: {loss_flag}, precision: {precision}, \n \
 		array_type: {array_config['array_type']}, num_mics: {array_config['num_mics']}, intermic_dist: {array_config['intermic_dist']}, room_size: {array_config['room_size']} \n, \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n \
 		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir}, exp_name: {exp_name} \n"
@@ -275,7 +276,7 @@ def test(args):
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
 	dataset_file = args.dataset_file
-	net_type="mimo_ph_diff"
+	loss_flag=args.net_type
 
 	if 0:
 		T60 = args.T60 
@@ -313,11 +314,14 @@ def test(args):
 	
 	dataset_condition = args.dataset_condition
 	dataset_dtype = args.dataset_dtype
+	noise_simulation = args.noise_simulation
+	diffuse_files_path = args.diffuse_files_path
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	
-	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=5,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
-									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #
+									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
+									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
 	test_loader = DataLoader(test_dataset, batch_size = args.batch_size,
 							 num_workers=args.num_workers, pin_memory=True, drop_last=True)  
 
@@ -356,7 +360,7 @@ def test(args):
 
 	if os.path.exists(os.path.join(ckpt_dir, args.model_path)):
 		model = DCCRN_model.load_from_checkpoint(os.path.join(ckpt_dir, args.model_path), bidirectional=bidirectional, 
-		        								train_dataset=None, val_dataset=None, net_type=net_type)
+		        								train_dataset=None, val_dataset=None, loss_flag=loss_flag)
 		trainer.test(model, dataloaders=test_loader)
 	else:
 		print(f"Model path not found in {ckpt_dir}")

@@ -39,6 +39,16 @@ parser.add_argument('--ref_mic_idx',
                     default=0,
                     help='ref mic idx 0 or 1 or -1(MIMO)') 
 
+parser.add_argument('--noise_simulation',
+                    type=str,
+                    default='',
+                    help='point_source vs diffuse')
+
+parser.add_argument('--diffuse_files_path',
+                    type=str,
+                    default='',
+                    help='path of file containing noi files for diffuse simulation')          
+
 
 # Dataset Files
 parser.add_argument('--dataset_file',

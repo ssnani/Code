@@ -308,22 +308,27 @@ class DOAcallbacks(Callback):
 		mix_Acc = self.get_acc(tgt_blk_vad, mix_blk_vals, ref_blk_vals)
 		est_Acc = self.get_acc(tgt_blk_vad, est_blk_vals, ref_blk_vals)
 
-		
-		#print(mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
+		#Utterance level
+		mix_utt_Acc = 1 if torch.abs(mix_utt_doa-tgt_utt_doa) <= 5 else 0
+		est_utt_Acc = 1 if torch.abs(est_utt_doa-tgt_utt_doa) <= 5 else 0
+
+		#print(batch_idx, mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
 
 		self.log("mix_frm_Acc", mix_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_frm_Acc", est_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_blk_Acc", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_blk_Acc", est_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("mix_utt_Acc", mix_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("est_utt_Acc", est_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		
-		"""
-		torch.save({'mix': (mix_f_doa, mix_f_vals),
-					'tgt': (tgt_f_doa, tgt_f_vals, tgt_sig_vad),
-					'est': (est_f_doa, est_f_vals),
+		
+		torch.save({'mix': (mix_f_doa, mix_f_vals, mix_utt_doa),
+					'tgt': (tgt_f_doa, tgt_f_vals, tgt_sig_vad, tgt_utt_doa),
+					'est': (est_f_doa, est_f_vals, est_utt_doa),
 					'doa': doa }, 
-					f'../signals/real_rirs_dbg/doa_{batch_idx}.pt', 
+					f'../signals/simu_rirs_dbg/doa_{batch_idx}_gannot_tst_rir_dp_t60_0_train_MIMO_RI_PD.pt', 
 			)
-		"""
+		
 		return
 
 

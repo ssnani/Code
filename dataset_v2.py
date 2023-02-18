@@ -84,7 +84,7 @@ class MovingSourceDataset(Dataset):
 		self.transforms = transforms if transforms is not None else None
 		self.size = size
 
-		self.rir_interface = taslp_RIR_Interface( array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size']) if "real_rirs" not in array_config \
+		self.rir_interface = taslp_RIR_Interface( array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size'], train_flag) if "real_rirs" not in array_config \
 							 else taslp_real_RIR_Interface(dist=array_config['dist'])
 		self.T = 4 
 		self.T60 = T60      

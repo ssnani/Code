@@ -1,6 +1,6 @@
 from train import DCCRN_model
-from dataset import MovingSourceDataset, NetworkInput
-from array_setup import array_setup_10cm_2mic
+from dataset_v2 import MovingSourceDataset, NetworkInput
+from array_setup import get_array_set_up_from_config
 from masked_gcc_phat import gcc_phat, gcc_phat_v2, compute_vad, block_doa, blk_vad
 from metrics import eval_metrics_batch_v1
 from callbacks import DOAcallbacks
@@ -106,6 +106,7 @@ def test_doa(args):
 
 		T60 = None
 		SNR = None
+		array_config = {}
 		#key value 
 		for line in lines:
 			lst = line.strip().split()
@@ -113,14 +114,33 @@ def test_doa(args):
 				T60 = float(lst[1])
 			elif lst[0]=="SNR":
 				SNR = float(lst[1])
+			elif lst[0]=="array_type":
+				array_config['array_type'] = lst[1]
+			elif lst[0]=="num_mics":
+				array_config['num_mics'] = int(lst[1])
+			elif lst[0]=="intermic_dist":
+				array_config['intermic_dist'] = float(lst[1])
+			elif lst[0]=="room_size":
+				array_config['room_size'] = [lst[1], lst[2], lst[3]]
+			elif lst[0]=="real_rirs":
+				array_config["real_rirs"] = False
+			elif lst[0]=="dist":
+				array_config["dist"] = int(lst[1])
 			else:
 				continue
 
+
 	dataset_condition = args.dataset_condition
 	dataset_dtype = args.dataset_dtype
-	test_dataset = MovingSourceDataset(dataset_file, array_setup_10cm_2mic,# size=10,
+	noise_simulation = args.noise_simulation
+	diffuse_files_path = args.diffuse_files_path
+
+	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
+
+	test_dataset = MovingSourceDataset(dataset_file, array_config,# size=10,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
-									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition) #
+									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
+									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
 	test_loader = DataLoader(test_dataset, batch_size = args.batch_size,
 							 num_workers=args.num_workers, pin_memory=True, drop_last=True)  
 
@@ -145,7 +165,7 @@ def test_doa(args):
 
 	precision=32
 	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision, #16,
-						callbacks=[DOAcallbacks(dataset_dtype=dataset_dtype, dataset_condition=dataset_condition)],
+						callbacks=[DOAcallbacks(array_config=array_config, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition)],
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -162,7 +182,7 @@ def test_doa(args):
 	model_path_0 = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_0/{args.model_path_0}'
 	model_path_1 = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_1/{args.model_path_1}'
 	if os.path.exists(model_path_0) and os.path.exists(model_path_1):
-		model = DOA_MISO_fwk(array_setup = array_setup_10cm_2mic, model_path_0= model_path_0, model_path_1=model_path_1)
+		model = DOA_MISO_fwk(array_setup = array_config['array_setup'], model_path_0= model_path_0, model_path_1=model_path_1)
 		if 1:
 			trainer.test(model, dataloaders=test_loader)
 		else:

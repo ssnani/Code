@@ -214,6 +214,10 @@ class ControlledConfig():
 		return mic_signals, dp_signals, acoustic_scene
 """
 
+
+
+
+
 if __name__=="__main__":
 	from array_setup import array_setup_10cm_2mic
 	snr = -5

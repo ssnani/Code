@@ -6,16 +6,16 @@ srun ~/.conda/envs/moving_source/bin/python train.py --num_nodes=$1 \
                   --SNR=-5.0 \
                   --dataset_dtype=stationary \
                   --dataset_condition=reverb \
+                  --noise_simulation=diffuse \
+                  --diffuse_files_path=/scratch/bbje/battula12/Databases/Timit/train_spk_signals \
                   --ref_mic_idx=-1 \
                   --dataset_file=../test_dataset_file_real_rir_circular_motion.txt \
                   --val_dataset_file=../test_dataset_file_real_rir_circular_motion.txt \
                   --bidirectional \
                   --batch_size=1 \
                   --num_workers=1 \
-                  --ckpt_dir=/scratch/bbje/battula12/ControlledExp/random_seg/Linear_2mic_8cm/MIMO_RI_PD/stationary \
-                  --exp_name=CircularMotion_dbg \
-                  --net_type=mimo_ph_diff \
-                  --model_path=epoch=99-step=4500.ckpt \
+                  --ckpt_dir=/scratch/bbje/battula12/ControlledExp/random_seg/Linear_array_8cm_dp_rir_t60_0/MIMO_RI_PD/stationary \
+                  --exp_name=CircularMotion \
+                  --net_type=MIMO_RI_PD \
+                  --model_path=epoch=98-step=4455.ckpt \
                   --input_test_filename=$3
-
-

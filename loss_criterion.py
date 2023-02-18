@@ -1,9 +1,9 @@
 import torch
 
 class LossFunction(object):
-    def __init__(self):
+    def __init__(self, loss_flag):
         self.eps = torch.finfo(torch.float32).eps
-
+        self.loss_flag = loss_flag
     def __call__(self, est, lbl):
         batch_size, n_ch, n_frames, n_feats = est.shape
 
@@ -25,7 +25,7 @@ class LossFunction(object):
 
         loss_ri = torch.sum(ri) / float(batch_size* n_frames * n_feats)
         loss_mag = torch.sum(mag) / float(batch_size* n_frames * n_feats)
-        loss = loss_ri + loss_mag
+        #loss = loss_ri + loss_mag
 
         #frame level metrics
         #loss_ri_frm = torch.sum(ri,dim=3)
@@ -35,12 +35,20 @@ class LossFunction(object):
         #tried loss_ph over loss_ri -> didn't work
         loss_ph = 0
 
+        if self.loss_flag=="MISO_RI":
+            loss = loss_ri
+        elif self.loss_flag=="MISO_RI_MAG":
+            loss = loss_ri + loss_mag
+        else:
+            print("Invalid loss flag")
+
         return loss, loss_ri, loss_mag, loss_ph
 
 
 class MIMO_LossFunction(object):
-    def __init__(self):
+    def __init__(self, loss_flag):
         self.eps = torch.finfo(torch.float32).eps
+        self.loss_flag = loss_flag
 
     def __call__(self, est, lbl, epoch):
         batch_size, n_ch, n_frames, n_feats = est.shape
@@ -76,11 +84,19 @@ class MIMO_LossFunction(object):
         loss_ph_diff = torch.sum(ph_diff) / float(batch_size* n_frames * n_feats)
         #loss += 0.01*loss_ph_diff
 
-
-
         #playing with loss 
-        loss = loss_ri + 0.01*loss_ph_diff
-
+        #loss = loss_ri + 0.01*loss_ph_diff
+        if "MIMO_RI"==self.loss_flag:
+            loss = loss_ri
+        elif "MIMO_RI_MAG"==self.loss_flag:
+            loss = loss_ri + loss_mag
+        elif "MIMO_RI_MAG_PD"==self.loss_flag:
+            loss = loss_ri + loss_mag + 0.01*loss_ph_diff
+        elif "MIMO_RI_PD"==self.loss_flag:
+            loss = loss_ri + 0.01*loss_ph_diff
+        else:
+            print("Invalid loss flag")
+        
         #frame level metrics
         #loss_ri_frm = torch.sum(ri,dim=3)
         #loss_mag_frm = torch.sum(mag,dim=3)

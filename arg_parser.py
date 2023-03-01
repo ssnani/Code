@@ -145,6 +145,18 @@ parser.add_argument('--input_train_filename',
                     default='',
                     help='Absolute Train file path which contain Parameters required')
 
+
+## DOA arguments
+
+parser.add_argument('--doa_tol',
+                    type=float,
+                    default=5,
+                    help='DOA tolerance degrees +/- (val)')
+
+parser.add_argument('--doa_euclid_dist',
+                    action='store_true',
+                    help='Trainong Array jobs model')
+
 if __name__=="__main__":
     args = parser.parse_args()
 

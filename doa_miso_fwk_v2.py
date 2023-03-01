@@ -22,15 +22,15 @@ import os
 from doa_arg_parser import parser
 
 class DOA_MISO_fwk(pl.LightningModule):
-	def __init__(self, array_setup, model_path_0, model_path_1):
+	def __init__(self, array_setup, model_path_0, model_path_1,loss_flag):
 		super().__init__()
 		self.array_setup = array_setup
 		self.bidirectional = True
 		
 		self.model_path_0 = model_path_0 #'/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_0/epoch=50-step=2295.ckpt'
 		self.model_path_1 = model_path_1 #'/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_1/epoch=50-step=2295.ckpt'
-		self.model_0 = DCCRN_model.load_from_checkpoint(self.model_path_0, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None, net_type="miso")
-		self.model_1 = DCCRN_model.load_from_checkpoint(self.model_path_1, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None, net_type="miso")
+		self.model_0 = DCCRN_model.load_from_checkpoint(self.model_path_0, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None, loss_flag=loss_flag)
+		self.model_1 = DCCRN_model.load_from_checkpoint(self.model_path_1, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None, loss_flag=loss_flag)
 
 	
 	def forward(self, input_batch):
@@ -70,7 +70,6 @@ class DOA_MISO_fwk(pl.LightningModule):
 		return mix_sig
 
 
-
 def get_acc(est_vad, est_blk_val, tgt_blk_val, tol=5, vad_th=0.6):
     n_blocks = len(est_vad)
     non_vad_blks =[]
@@ -94,6 +93,10 @@ def test_doa(args):
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
 	dataset_file = args.dataset_file
+	loss_flag=args.net_type
+	# DOA arguments
+	doa_tol = args.doa_tol
+	doa_euclid_dist = args.doa_euclid_dist
 
 	if 0:
 		T60 = args.T60 
@@ -123,7 +126,7 @@ def test_doa(args):
 			elif lst[0]=="room_size":
 				array_config['room_size'] = [lst[1], lst[2], lst[3]]
 			elif lst[0]=="real_rirs":
-				array_config["real_rirs"] = False
+				array_config["real_rirs"] = lst[1]
 			elif lst[0]=="dist":
 				array_config["dist"] = int(lst[1])
 			else:
@@ -148,6 +151,9 @@ def test_doa(args):
 	## exp path directories
 
 	#ckpt_dir = f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	model_path_0 = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_0/{args.model_path_0}'
+	model_path_1 = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_1/{args.model_path_1}'
+
 	ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/doa'
 
 	if args.dataset_condition =="reverb":
@@ -165,7 +171,7 @@ def test_doa(args):
 
 	precision=32
 	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision, #16,
-						callbacks=[DOAcallbacks(array_config=array_config, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition)],
+						callbacks=[DOAcallbacks(array_config=array_config, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist)],
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -179,10 +185,9 @@ def test_doa(args):
 
 	print(msg)
 
-	model_path_0 = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_0/{args.model_path_0}'
-	model_path_1 = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_1/{args.model_path_1}'
+	
 	if os.path.exists(model_path_0) and os.path.exists(model_path_1):
-		model = DOA_MISO_fwk(array_setup = array_config['array_setup'], model_path_0= model_path_0, model_path_1=model_path_1)
+		model = DOA_MISO_fwk(array_setup = array_config['array_setup'], model_path_0= model_path_0, model_path_1=model_path_1, loss_flag=loss_flag)
 		if 1:
 			trainer.test(model, dataloaders=test_loader)
 		else:
@@ -260,9 +265,6 @@ def test_doa(args):
 		print(f"Model path not found in {ckpt_dir}")
 
 	return 
-
-
-
 
 
 if __name__=="__main__":

@@ -216,7 +216,7 @@ def main(args):
 
 	## exp path directories
 
-	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
 	msg_pre_trained = None
@@ -278,6 +278,10 @@ def test(args):
 	dataset_file = args.dataset_file
 	loss_flag=args.net_type
 
+	# DOA arguments
+	doa_tol = args.doa_tol
+	doa_euclid_dist = args.doa_euclid_dist
+
 	if 0:
 		T60 = args.T60 
 		SNR = args.SNR
@@ -318,7 +322,7 @@ def test(args):
 	diffuse_files_path = args.diffuse_files_path
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	
-	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, size=10,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -328,14 +332,16 @@ def test(args):
 	## exp path directories
 
 	#ckpt_dir = f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
-	ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	
 
 	if args.dataset_condition =="reverb":
 		app_str = f't60_{T60}'
+		ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'
 	elif args.dataset_condition =="noisy":
 		app_str = f'snr_{SNR}dB'
 	elif args.dataset_condition =="noisy_reverb":
 		app_str = f't60_{T60}_snr_{SNR}dB'
+		ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 	else:
 		app_str = ''
 
@@ -343,8 +349,8 @@ def test(args):
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
-	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision,
-						callbacks=[ DOAcallbacks(array_config=array_config)], #Losscallbacks(),
+	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
+						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -352,7 +358,8 @@ def test(args):
 	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, precision: {precision}, \n \
 		ckpt_dir: {ckpt_dir}, exp_name: {exp_name}, \n \
 		model: {args.model_path}, ref_mic_idx : {ref_mic_idx}, \n \
-		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition} \n"
+		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n\
+		doa_tol: {doa_tol}, doa_euclid_dist: {doa_euclid_dist} \n"
 
 	trainer.logger.experiment.add_text("Exp details", msg)
 

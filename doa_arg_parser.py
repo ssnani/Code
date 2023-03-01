@@ -12,6 +12,11 @@ parser.add_argument('--exp_name',
                     type=str,
                     required=True,
                     help='Unit of sample, can be either `seg` or `utt`')
+parser.add_argument('--net_type',
+                    type=str,
+                    default='miso',
+                    help='miso or mimo'
+                    )  
 
 # Experiment parameters (Dataset)
 parser.add_argument('--T60',
@@ -97,6 +102,16 @@ parser.add_argument('--input_test_filename',
                     default='',
                     help='Absolute Test file path which contain Parameters required')
 
+## DOA arguments
+
+parser.add_argument('--doa_tol',
+                    type=float,
+                    default=5,
+                    help='DOA tolerance degrees +/- (val)')
+
+parser.add_argument('--doa_euclid_dist',
+                    action='store_true',
+                    help='Trainong Array jobs model')
 
 if __name__=="__main__":
     args = parser.parse_args()

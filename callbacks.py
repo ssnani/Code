@@ -161,7 +161,7 @@ class Losscallbacks(Callback):
 		return
 
 class DOAcallbacks(Callback):
-	def __init__(self, array_config, dataset_dtype=None, dataset_condition=None):
+	def __init__(self, array_config, dataset_dtype=None, dataset_condition=None, doa_tol = 5, doa_euclid_dist=False):
 		self.frame_size = 320
 		self.frame_shift = 160    #TODO
 		#Computing DOA ( F -> T -> F) bcz of vad
@@ -173,6 +173,10 @@ class DOAcallbacks(Callback):
 
 		self.dataset_dtype= dataset_dtype
 		self.dataset_condition = dataset_condition
+		self.tol = doa_tol
+		self.euclid_dist = doa_euclid_dist
+		#self.acc = 0
+		#self.files = 0
 
 	def format_istft(self, mix_ri_spec):
 		#adjusting shape, type for istft
@@ -279,17 +283,23 @@ class DOAcallbacks(Callback):
 		tgt_spec_cmplx = self.format_complex(tgt_ri_spec)
 		est_spec_cmplx = self.format_complex(est_ri_spec)
 
-		mix_f_doa, mix_f_vals, mix_utt_doa, _, _ = gcc_phat_loc_orient(mix_spec_cmplx, torch.abs(mix_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=False)
-		tgt_f_doa, tgt_f_vals, tgt_utt_doa, _, _ = gcc_phat_loc_orient(tgt_spec_cmplx, torch.abs(tgt_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=False)
-		est_f_doa, est_f_vals, est_utt_doa, _, _ = gcc_phat_loc_orient(est_spec_cmplx, torch.abs(est_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=False)
+		#removing spatial aliasing freq bins
+
+
+		mix_f_doa, mix_f_vals, mix_utt_doa, _, _ = gcc_phat_loc_orient(mix_spec_cmplx, torch.abs(mix_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist)
+		tgt_f_doa, tgt_f_vals, tgt_utt_doa, tgt_unwieghted_freq_vals, tgt_freq_vals = gcc_phat_loc_orient(tgt_spec_cmplx, torch.abs(tgt_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist)
+		est_f_doa, est_f_vals, est_utt_doa, est_unwieghted_freq_vals, est_freq_vals = gcc_phat_loc_orient(est_spec_cmplx, torch.abs(est_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist)
 
 		if "real_rirs" not in self.array_config:
 			ref_f_doa = tgt_f_doa
 		else:
 			ref_f_doa = torch.rad2deg(doa[:,:,-1])[0,:mix_f_doa.shape[0]]
 		
-		mix_frm_Acc = self.get_acc(tgt_sig_vad, mix_f_doa, ref_f_doa, vad_th=0.6)
-		est_frm_Acc = self.get_acc(tgt_sig_vad, est_f_doa, ref_f_doa, vad_th=0.6)
+		mix_frm_Acc = self.get_acc(tgt_sig_vad, mix_f_doa, ref_f_doa, tol=self.tol, vad_th=0.6)
+		est_frm_Acc = self.get_acc(tgt_sig_vad, est_f_doa, ref_f_doa, tol=self.tol, vad_th=0.6)
 
 
 		blk_size = 25
@@ -305,15 +315,15 @@ class DOAcallbacks(Callback):
 		else:
 			ref_blk_vals, _ = block_lbl_doa(doa, block_size=blk_size)#block_doa(frm_val=ref_f_doa, block_size=blk_size)
 
-		mix_Acc = self.get_acc(tgt_blk_vad, mix_blk_vals, ref_blk_vals)
-		est_Acc = self.get_acc(tgt_blk_vad, est_blk_vals, ref_blk_vals)
+		mix_Acc = self.get_acc(tgt_blk_vad, mix_blk_vals, ref_blk_vals, tol=self.tol)
+		est_Acc = self.get_acc(tgt_blk_vad, est_blk_vals, ref_blk_vals, tol=self.tol)
 
 		#Utterance level
-		mix_utt_Acc = 1 if torch.abs(mix_utt_doa-tgt_utt_doa) <= 5 else 0
-		est_utt_Acc = 1 if torch.abs(est_utt_doa-tgt_utt_doa) <= 5 else 0
+		doa_degrees = torch.abs(torch.rad2deg(doa[:,:,-1])[0,0])
+		mix_utt_Acc = 1 if torch.abs(mix_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
+		est_utt_Acc = 1 if torch.abs(est_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
 
-		#print(batch_idx, mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
-
+		
 		self.log("mix_frm_Acc", mix_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_frm_Acc", est_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_blk_Acc", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
@@ -321,16 +331,32 @@ class DOAcallbacks(Callback):
 		self.log("mix_utt_Acc", mix_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_utt_Acc", est_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		
+		#print(batch_idx, mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
+		print(batch_idx, mix_frm_Acc, est_frm_Acc, doa_degrees, mix_utt_doa, est_utt_doa, mix_utt_Acc, est_utt_Acc)
 		
-		torch.save({'mix': (mix_f_doa, mix_f_vals, mix_utt_doa),
-					'tgt': (tgt_f_doa, tgt_f_vals, tgt_sig_vad, tgt_utt_doa),
-					'est': (est_f_doa, est_f_vals, est_utt_doa),
-					'doa': doa }, 
-					f'../signals/simu_rirs_dbg/doa_{batch_idx}_gannot_tst_rir_dp_t60_0_train_MIMO_RI_PD.pt', 
-			)
-		
-		return
+		#don't care for simulated rirs
+		if "real_rirs" in self.array_config and ( not (doa_degrees==0 or doa_degrees==180)):
 
+			#self.acc += est_utt_Acc
+			#self.files += 1
+			#print(batch_idx, self.acc, self.files)
+
+			self.log("mix_frm_Acc_excluded_endfire", mix_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("est_frm_Acc_excluded_endfire", est_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("mix_blk_Acc_excluded_endfire", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("est_blk_Acc_excluded_endfire", est_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("mix_utt_Acc_excluded_endfire", mix_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("est_utt_Acc_excluded_endfire", est_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		
+		"""
+		torch.save({'mix': (mix_f_doa, mix_f_vals, mix_utt_doa),
+					'tgt': (tgt_f_doa, tgt_f_vals, tgt_sig_vad, tgt_utt_doa, tgt_unwieghted_freq_vals, tgt_freq_vals),
+					'est': (est_f_doa, est_f_vals, est_utt_doa, est_unwieghted_freq_vals, est_freq_vals),
+					'doa': doa }, 
+					f'../signals/simu_rirs_dbg/doa_{1.0}_{batch_idx}_tol_{self.tol}deg_euclid_{self.euclid_dist}_rir_dp_t60_0_train_MIMO_RI_PD_mag_compression.pt', 
+			)
+		"""
+		return
 
 	def on_test_batch_end(
 		self,
@@ -357,7 +383,6 @@ class DOAcallbacks(Callback):
 						}, f'{pp_str}doa_{app_str}.pt',
 						)
 		"""
-
 
 	def on_validation_batch_end(
 		self,

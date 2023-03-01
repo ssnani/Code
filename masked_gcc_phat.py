@@ -29,26 +29,29 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     (chan, frames, freq) = X.shape
     X_ph = torch.angle(X)
-    X_ph_diff = X_ph[0,:,:] - X_ph[1,:,:]
+    X_ph_diff = X_ph[0,:,1:] - X_ph[1,:,1:]
 
     #weightage
     if weighted:
-        est_mask_pq = est_mask[0,:,:]*est_mask[1,:,:]
+        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 0.3)
 
 
-    angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(0, freq, dtype=torch.float32)
+    angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(1, freq, dtype=torch.float32)
 
     angle_step = 1.0
-    all_directions = torch.linspace(0,180.0,int(2*90.0/angle_step+1),dtype=torch.float32) #a set of potential directions
+    theta_grid = 180.0
+    all_directions = torch.linspace(0,theta_grid,int(theta_grid/angle_step+1),dtype=torch.float32) #a set of potential directions
     dist = src_mic_dist
     c = 343
 
     all_directions_val = [] 
     delays = []
+    all_info = []
+    all_info_unweighted = []
 
     for ind, direction in enumerate(all_directions):
         #ang = (direction - 90)/180.0*torch.pi  #radians
-        ang_doa  = (direction)/180.0*torch.pi  #radians
+        ang_doa  = (direction)/theta_grid*torch.pi  #radians
         
         if is_euclidean_dist:
             src_pos = torch.tensor([torch.cos(ang_doa)*dist,torch.sin(ang_doa)*dist, 0.0],dtype=torch.float32) #+ mic_center
@@ -67,10 +70,13 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
         delay_vec = angular_freq*delay
         #print(X_ph_diff.shape, delay_vec.shape)
         gcc_phat_pq = torch.cos( X_ph_diff - delay_vec.to(device=X_ph_diff.device))
+
+        all_info_unweighted.append(gcc_phat_pq)   #debug
         if weighted:
             mgcc_phat_pq = est_mask_pq*gcc_phat_pq
             gcc_phat_pq = mgcc_phat_pq
 
+        all_info.append(gcc_phat_pq)              #debug
         per_direction_val = torch.sum(gcc_phat_pq, dim=1)
 
         all_directions_val.append(per_direction_val)
@@ -86,9 +92,9 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
 
     doa_idx = torch.argmax(vals,dim=0)
-    doa = all_directions[doa_idx]
+    doa = all_directions[doa_idx.to(all_directions.device)]
 
-    return doa, vals, utt_doa, utt_sum, delays
+    return doa, vals, utt_doa, all_info_unweighted, all_info #utt_sum, delays
 
 
 #Vad 
@@ -254,7 +260,7 @@ def batch_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, 
 
     #weightage
     if weighted:
-        est_mask_pq = est_mask[0,:,:]*est_mask[1,:,:]
+        est_mask_pq = torch.power((est_mask[0,:,:]*est_mask[1,:,:]), 0.3)
 
 
     angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(0, freq, dtype=torch.float32)

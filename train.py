@@ -20,11 +20,11 @@ from debug import dbg_print
 from callbacks import Losscallbacks, DOAcallbacks, GradNormCallback
 
 class DCCRN_model(pl.LightningModule):
-	def __init__(self, bidirectional, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, loss_flag=None):
+	def __init__(self, bidirectional: bool, net_inp: int, net_out: int, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, loss_flag=None):
 		super().__init__()
 		pl.seed_everything(77)
 
-		self.model = MIMO_Net(bidirectional) if "MIMO" in loss_flag else Net(bidirectional) # in 
+		self.model = MIMO_Net(bidirectional, net_inp, net_out) #MIMO_Net(bidirectional) if "MIMO" in loss_flag else Net(bidirectional) # in 
 		self.loss = MIMO_LossFunction(loss_flag) if "MIMO" in loss_flag else LossFunction(loss_flag)
 
 		self.batch_size = batch_size
@@ -33,6 +33,7 @@ class DCCRN_model(pl.LightningModule):
 		self.val_dataset = val_dataset
 
 		self.loss_flag = loss_flag
+
 
 	def train_dataloader(self):
 		return DataLoader(self.train_dataset, batch_size = self.batch_size, 
@@ -135,10 +136,11 @@ class DCCRN_model(pl.LightningModule):
 				else:
 					n_sig=1
 
-				if n_sig==2:
+				if n_sig>1:
 					#rank_zero_only
-					tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}_0', est_sig[[0],:]/torch.max(torch.abs(est_sig[[0],:])), sample_rate=16000)
-					tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}_1', est_sig[[1],:]/torch.max(torch.abs(est_sig[[1],:])), sample_rate=16000)
+					for i in range(n_sig):
+						tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}_{i}', est_sig[[i],:]/torch.max(torch.abs(est_sig[[i],:])), sample_rate=16000)
+					#tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}_1', est_sig[[1],:]/torch.max(torch.abs(est_sig[[1],:])), sample_rate=16000)
 				else:
 					tensorboard.add_audio(f'est_{self.current_epoch}_{batch_idx}', est_sig/torch.max(torch.abs(est_sig)), sample_rate=16000)
 
@@ -196,14 +198,23 @@ def main(args):
 
 	noise_simulation = args.noise_simulation
 	diffuse_files_path = args.diffuse_files_path
+
+	#loss_flag
+	net_inp = array_config["num_mics"]*2
+
+	if "SISO" in loss_flag:
+		net_inp, net_out = 2, 2
+	elif "MISO" in loss_flag:
+		net_inp, net_out = net_inp, 2
+	elif "MIMO" in loss_flag:
+		net_inp, net_out = net_inp, net_inp
+
 	
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	train_dataset = MovingSourceDataset(dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
 										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
 										noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=2
 
-
-	
 	dev_dataset = MovingSourceDataset(val_dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=2
@@ -211,12 +222,12 @@ def main(args):
 
 	# model
 	bidirectional = args.bidirectional
-	model = DCCRN_model(bidirectional, train_dataset, dev_dataset, args.batch_size, args.num_workers, loss_flag)
+	model = DCCRN_model(bidirectional, net_inp, net_out, train_dataset, dev_dataset, args.batch_size, args.num_workers, loss_flag)
 
 
 	## exp path directories
 
-	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
+	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
 	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
 	msg_pre_trained = None
@@ -258,7 +269,7 @@ def main(args):
 	#trainer.tune(model)
 	#print(f'Max batch size fit on memory: {model.batch_size}\n')
 				
-	msg = f"Train Config: bidirectional: {bidirectional}, T: {T} , loss_flag: {loss_flag}, precision: {precision}, \n \
+	msg = f"Train Config: bidirectional: {bidirectional}, net_inp: {net_inp}, net_out: {net_out}, T: {T} , loss_flag: {loss_flag}, precision: {precision}, \n \
 		array_type: {array_config['array_type']}, num_mics: {array_config['num_mics']}, intermic_dist: {array_config['intermic_dist']}, room_size: {array_config['room_size']} \n, \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n \
 		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir}, exp_name: {exp_name} \n"
@@ -322,7 +333,21 @@ def test(args):
 	diffuse_files_path = args.diffuse_files_path
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	
-	test_dataset = MovingSourceDataset(dataset_file, array_config, size=10,
+	net_inp = array_config["num_mics"]*2
+
+	net_inp, net_out = net_inp, net_inp
+
+	num_mics = array_config["num_mics"]
+
+	"""
+	if "MIMO_RI_PD_REF" == loss_flag:
+		mic_1 = 0
+		mic_pairs = [(mic_1, mic_2) for mic_2 in range(mic_1+1, num_mics)]
+	else:	
+	"""
+	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
+
+	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=20,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -336,7 +361,7 @@ def test(args):
 
 	if args.dataset_condition =="reverb":
 		app_str = f't60_{T60}'
-		ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+		ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'   #{noise_simulation}/
 	elif args.dataset_condition =="noisy":
 		app_str = f'snr_{SNR}dB'
 	elif args.dataset_condition =="noisy_reverb":
@@ -350,13 +375,14 @@ def test(args):
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
-						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist)], #Losscallbacks(),
+						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
 	
 	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, precision: {precision}, \n \
 		ckpt_dir: {ckpt_dir}, exp_name: {exp_name}, \n \
+		net_inp: {net_inp}, net_out: {net_out}, \n \
 		model: {args.model_path}, ref_mic_idx : {ref_mic_idx}, \n \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n\
 		doa_tol: {doa_tol}, doa_euclid_dist: {doa_euclid_dist} \n"
@@ -367,6 +393,7 @@ def test(args):
 
 	if os.path.exists(os.path.join(ckpt_dir, args.model_path)):
 		model = DCCRN_model.load_from_checkpoint(os.path.join(ckpt_dir, args.model_path), bidirectional=bidirectional, 
+					   							net_inp=net_inp, net_out=net_out,
 		        								train_dataset=None, val_dataset=None, loss_flag=loss_flag)
 		trainer.test(model, dataloaders=test_loader)
 	else:

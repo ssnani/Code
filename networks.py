@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 #from utils.utils import numParams
-
+OLD_IMPLEMENTATION = False
 
 class GLSTM(nn.Module):
     def __init__(self, hidden_size=1024, groups=4, bidirectional=True):
@@ -200,10 +200,13 @@ class Net(nn.Module):
         return out
 
 class MIMO_Net(nn.Module):
-    def __init__(self, bidirectional):
+    def __init__(self, bidirectional, net_inp, net_out):
         super(MIMO_Net, self).__init__()
-                
-        self.conv1 = DenseConv2d(4, 16, (1,4), padding=(0,1), stride=(1,2), grate=8)
+        
+        self.net_inp = net_inp
+        self.net_out = net_out
+
+        self.conv1 = DenseConv2d(self.net_inp, 16, (1,4), padding=(0,1), stride=(1,2), grate=8)
         self.conv2 = DenseConv2d(16, 32, (1,4), padding=(0,1), stride=(1,2), grate=8)
         self.conv3 = DenseConv2d(32, 64, (1,4), padding=(0,1), stride=(1,2), grate=8)
         self.conv4 = DenseConv2d(64, 128, (1,4), padding=(0,1), stride=(1,2), grate=8)
@@ -217,12 +220,16 @@ class MIMO_Net(nn.Module):
         self.conv2_t = DenseConvTranspose2d(64+32, 32, (1,4), padding=(0,1), stride=(1,2), grate=8)
         self.conv1_t = DenseConvTranspose2d(32+16, 16, (1,4), padding=(0,1), stride=(1,2), grate=8)
         
-        self.fc1 = nn.Linear(160*8, 161)
-        self.fc2 = nn.Linear(160*8, 161)
+        if OLD_IMPLEMENTATION:
+            self.fc1 = nn.Linear(160*8, 161)
+            self.fc2 = nn.Linear(160*8, 161)
 
-        self.fc3 = nn.Linear(160*8, 161)
-        self.fc4 = nn.Linear(160*8, 161)
-        
+
+            self.fc3 = nn.Linear(160*8, 161)
+            self.fc4 = nn.Linear(160*8, 161)
+        else:
+            self.linear_layers = nn.ModuleList([ nn.Linear(160*8, 161) for _ in range(0,self.net_out) ])
+
         self.path1 = DenseConv2d(16, 16, (1,3), padding=(0,1), stride=(1,1), grate=8)
         self.path2 = DenseConv2d(32, 32, (1,3), padding=(0,1), stride=(1,1), grate=8)
         self.path3 = DenseConv2d(64, 64, (1,3), padding=(0,1), stride=(1,1), grate=8)
@@ -249,29 +256,31 @@ class MIMO_Net(nn.Module):
         d2 = torch.cat([self.conv2_t(d3), self.path1(e1)], dim=1)
         d1 = self.conv1_t(d2)
 
-        #breakpoint()
         out1 = d1[:,:8].transpose(1,2).contiguous().view(d1.size(0), d1.size(2), -1).contiguous()
         out2 = d1[:,8:].transpose(1,2).contiguous().view(d1.size(0), d1.size(2), -1).contiguous()
+        #breakpoint()
+        if OLD_IMPLEMENTATION:
+            out_r1 = self.fc1(out1)
+            out_i1 = self.fc2(out2)
 
-        out_r1 = self.fc1(out1)
-        out_i1 = self.fc2(out2)
+            #out_0 = torch.stack([out_r1, out_i1], dim=1)
 
-        #out_0 = torch.stack([out_r1, out_i1], dim=1)
+            out_r2 = self.fc3(out1)
+            out_i2 = self.fc4(out2)
 
-        out_r2 = self.fc3(out1)
-        out_i2 = self.fc4(out2)
-
-        out = torch.stack([out_r1, out_i1, out_r2, out_i2], dim=1)
+            out = torch.stack([out_r1, out_i1, out_r2, out_i2], dim=1)
+        else:
+            out = torch.stack( [ self.linear_layers[i](out1) if 0==i%2 else self.linear_layers[i](out2) for i in range(0,self.net_out) ], dim=1)
 
         return out
         
-def test_model(bidirectional):
-    feat = torch.randn(128, 4, 200, 161)
-    net = Net(bidirectional)
+def test_model(bidirectional, num_inp, num_out):
+    feat = torch.randn(10, num_inp, 100, 161)
+    net = MIMO_Net(bidirectional, num_inp, num_out)
     #print('n_params: {}'.format(numParams(net)))
     #breakpoint()
-    feat = feat.to('cuda:0')
-    net = net.to('cuda:0')
+    #feat = feat.to('cuda:0')
+    #net = net.to('cuda:0')
     import time
     start = time.time()
     est = net(feat)
@@ -281,6 +290,6 @@ def test_model(bidirectional):
 
 
 if __name__=="__main__":
-    import sys
-    bidirectional = sys.argv[1] == "True"
-    test_model(bidirectional)
+    #import sys
+    #bidirectional = sys.argv[1] == "True"
+    test_model(bidirectional=True, num_inp=4, num_out=2)

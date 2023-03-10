@@ -14,13 +14,15 @@ rirs are created for
 #
 class taslp_RIR_Interface():
     #(n_t60,n_angles,n_mics,rir_len)
-    def __init__(self, array_type: str, num_mics:int, intermic_dist: float, room_size: list, train_flag: bool):
-        self.t60_list = [round(idx,1) for idx in np.arange(0.0,1.1,0.1) if idx!=0.1]
+    #currently (2, 8 ) channel rirs
+    def __init__(self, array_type: str, num_mics:int, intermic_dist: float, room_size: list, train_flag: bool, sub_mics: int = -1):
+        self.t60_list = [round(idx,1) for idx in np.arange(0.0,1.1,0.1) if idx!=0.1] 
         self.files_list = [f'HABET_SpacedOmni_{room_size[0]}x{room_size[1]}x{room_size[2]}_height{float(room_size[2])/2}_dist1_roomT60_{t60}.mat' for t60 in self.t60_list]
-        self.scratch_dir = f'/scratch/bbje/battula12/Databases/RIRs/taslp_roomdata_360_resolution_1degree_{array_type}_array_{num_mics}_mic_{intermic_dist}cm/'
+        self.file_num_mics = 8 if( num_mics > 2 and num_mics <= 8) else 2
+        self.scratch_dir = f'/fs/scratch/PAS0774/Shanmukh/Databases/RIRs/taslp_roomdata_360_resolution_1degree_{array_type}_array_{self.file_num_mics}_mic_{intermic_dist}cm/'
         self.rirs_list, self.dp_rirs_list = self.load_all_rirs(train_flag)
+        self.req_mics = num_mics #sub_mics if sub_mics > 0 and sub_mics !=num_mics else num_mics
 
-    
     def load_all_rirs(self, train_flag):
         lst = []
         dp_lst = []
@@ -35,7 +37,6 @@ class taslp_RIR_Interface():
             dp_lst.append(self.get_direct_path_rir(x))
         
         return lst, dp_lst # list of  arrays with shape (360, 2(n_mics), rir_len)
-
     
     def get_direct_path_rir(self, h):
         #h : (360, 2, rir_len)
@@ -53,22 +54,29 @@ class taslp_RIR_Interface():
 
         return h_dp
 
-
     def get_rirs(self, t60: float, idx_list: "list integer degrees" ):
         t60_key = self.t60_list.index(t60)
-        return self.rirs_list[t60_key][idx_list,:,:], self.rirs_list[0][idx_list,:,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
+        if self.req_mics==self.file_num_mics:
+            return self.rirs_list[t60_key][idx_list,:,:], self.rirs_list[0][idx_list,:,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
+        else:
+            #picking centre mics
+            #login written for even mics
+            idx = self.file_num_mics//2
+            return self.rirs_list[t60_key][idx_list,idx-2:idx+2,:], self.rirs_list[0][idx_list,idx-2:idx+2,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
+
 
 class taslp_real_RIR_Interface():
     #(n_t60,n_angles,n_mics,rir_len)
     #dist: [1, 2]m
-    def __init__(self, dist:int):
+    def __init__(self, dist:int, num_mics):
         self.t60_list = [0.16, 0.36, 0.61]
-        self.files_list = [f'aachen_4-4-4-8-4-4-4_roomT60_{t60}.mat' for t60 in self.t60_list]
-        self.scratch_dir = f'/scratch/bbje/battula12/Databases/RIRs/taslp_aachen_real_rirs/'
+        self.files_list = [f'aachen_8-8-8-8-8-8-8_roomT60_{t60}.mat' for t60 in self.t60_list] 
+        self.scratch_dir = f'/fs/scratch/PAS0774/Shanmukh/Databases/RIRs/taslp_aachen_real_rirs/'
         self.dist = dist
         self.idx_offset = 0 if 1==dist else 13 
         self.rirs_list, self.dp_rirs_list = self.load_all_rirs()
-       
+        self.file_num_mics = 8
+        self.num_mics = num_mics
     # idx-> degree
     # 0  -> 180 
     def load_all_rirs(self):
@@ -108,14 +116,16 @@ class taslp_real_RIR_Interface():
         t60_key = self.t60_list.index(t60)
         #rir
         idx_list = [12-idx for idx in idx_list]
-        return self.rirs_list[t60_key][idx_list,3:5,:], self.dp_rirs_list[t60_key][idx_list,3:5,:] #(nb_points,  2(n_mics), rir_len)) picking 8cm intermic dist
+        mic_centre_idx = self.file_num_mics//2
+        mic_idx_list = self.num_mics//2
+        return self.rirs_list[t60_key][idx_list,mic_centre_idx-mic_idx_list:mic_centre_idx+mic_idx_list,:], self.dp_rirs_list[t60_key][idx_list,mic_centre_idx-mic_idx_list:mic_centre_idx+mic_idx_list,:] #(nb_points,  2(n_mics), rir_len)) picking 8cm intermic dist (3:5)
 
 class gannot_sim_RIR_Interface():
     #my simulation only for 8cm
     def __init__(self, dist: int):
         self.t60_list = [0.16, 0.36, 0.61]
         self.files_list = [f'HABET_SpacedOmni_6x6x2.4_height1.2_dist1_roomT60_{t60}s.mat' for t60 in self.t60_list]
-        self.scratch_dir = f'/scratch/bbje/battula12/Databases/RIRs/'
+        self.scratch_dir = f'/fs/scratch/PAS0774/Shanmukh/Databases/RIRs/'
         self.rirs_list, self.dp_rirs_list = self.load_all_rirs()
    
     def load_all_rirs(self):
@@ -154,8 +164,8 @@ class gannot_sim_RIR_Interface():
         return self.rirs_list[t60_key][idx_list,:,:], self.rirs_list[0][idx_list,:,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
 
 if __name__=="__main__":
-    array_type, num_mics, intermic_dist,  room_size = 'linear', 2, 10.0,  ['8', '8', '3']
-    """
+    array_type, num_mics, intermic_dist,  room_size = 'linear', 4, 8.0,  ['6', '6', '2.4']
+    
     rir_interface = taslp_RIR_Interface(array_type, num_mics, intermic_dist, room_size, None)
     rirs, dp_rirs = rir_interface.get_rirs(t60=0.2, idx_list=[4])
     #rirs_0, dp_rirs_0 = rir_interface.get_rirs(t60=0.0, idx_list=[4])
@@ -169,4 +179,5 @@ if __name__=="__main__":
     real_rir_interface = taslp_real_RIR_Interface(dist=1)
     rirs, dp_rirs = real_rir_interface.get_rirs(t60=0.16, idx_list=[4])
     breakpoint()
+    """
     print(rirs.shape)

@@ -97,6 +97,43 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
     return doa, vals, utt_doa, all_info_unweighted, all_info #utt_sum, delays
 
 
+
+def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs):
+    num_mics, num_frames, num_freq = X.shape
+    #mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
+
+    pair_acc_X_frm_vals = torch.zeros(181, num_frames).to(X.device)  #theta_grid [0,180]
+
+    #centre mics (2mic)
+    #  Even mics
+    idx = num_mics//2
+    centre_mic_pair = (idx-1, idx)
+    #print(centre_mic_pair)
+    
+    for mic_pair in mic_pairs:
+        X_pair = X[[mic_pair[0], mic_pair[1]],:,:]
+        est_mask_pair = est_mask[[mic_pair[0], mic_pair[1]],:,:]
+        mic_pair_pos = local_mic_pos[[mic_pair[0], mic_pair[1]],:]
+
+        X_pair_doa, X_frm_vals, X_pair_utt_doa, _, _ = gcc_phat_loc_orient(X_pair, est_mask_pair, fs, nfft, mic_pair_pos, 
+															 mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist)
+        
+        if centre_mic_pair == mic_pair:
+            X_2mic_doa = X_pair_doa
+            X_2mic_utt_doa = X_pair_utt_doa
+
+
+        pair_acc_X_frm_vals += X_frm_vals
+
+    doa_idx = torch.argmax(pair_acc_X_frm_vals,dim=0)  #assuming doa_idx is doa
+
+    utt_sum = torch.sum(pair_acc_X_frm_vals,dim=1)
+    utt_doa_idx = torch.argmax(utt_sum)
+
+    return doa_idx, pair_acc_X_frm_vals, utt_doa_idx, X_2mic_doa, X_2mic_utt_doa
+    
+    
+
 #Vad 
 #input: numpy signal
 #output: torch signal

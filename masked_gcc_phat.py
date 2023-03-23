@@ -33,7 +33,7 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     #weightage
     if weighted:
-        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 0.3)
+        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 1) #0.3
 
 
     angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(1, freq, dtype=torch.float32)

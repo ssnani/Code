@@ -18,7 +18,7 @@ class taslp_RIR_Interface():
     def __init__(self, array_type: str, num_mics:int, intermic_dist: float, room_size: list, train_flag: bool, sub_mics: int = -1):
         self.t60_list = [round(idx,1) for idx in np.arange(0.0,1.1,0.1) if idx!=0.1] 
         self.files_list = [f'HABET_SpacedOmni_{room_size[0]}x{room_size[1]}x{room_size[2]}_height{float(room_size[2])/2}_dist1_roomT60_{t60}.mat' for t60 in self.t60_list]
-        self.file_num_mics = 8 if( num_mics > 2 and num_mics <= 8) else 2
+        self.file_num_mics = 8 #if( num_mics > 2 and num_mics <= 8) else 2
         self.scratch_dir = f'/fs/scratch/PAS0774/Shanmukh/Databases/RIRs/taslp_roomdata_360_resolution_1degree_{array_type}_array_{self.file_num_mics}_mic_{intermic_dist}cm/'
         self.rirs_list, self.dp_rirs_list = self.load_all_rirs(train_flag)
         self.req_mics = num_mics #sub_mics if sub_mics > 0 and sub_mics !=num_mics else num_mics
@@ -62,7 +62,8 @@ class taslp_RIR_Interface():
             #picking centre mics
             #login written for even mics
             idx = self.file_num_mics//2
-            return self.rirs_list[t60_key][idx_list,idx-2:idx+2,:], self.rirs_list[0][idx_list,idx-2:idx+2,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
+            mic_pair_idx_offset = self.req_mics//2
+            return self.rirs_list[t60_key][idx_list,idx-mic_pair_idx_offset:idx+mic_pair_idx_offset,:], self.rirs_list[0][idx_list,idx-mic_pair_idx_offset:idx+mic_pair_idx_offset,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
 
 
 class taslp_real_RIR_Interface():

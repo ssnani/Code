@@ -129,19 +129,21 @@ class MIMO_LossFunction(object):
         self.eps = torch.finfo(torch.float32).eps
         self.loss_flag = loss_flag
 
-
+    
     def __call__(self, est, lbl, epoch):
 
         batch_size, n_ch, n_frames, n_feats = est.shape
 
         num_mics = n_ch//2
 
+        lam = 1 if "UNW" in self.loss_flag else 0.01
+
         if "MIMO_RI_PD_REF"==self.loss_flag: 
             num_mic_pairs = (num_mics-1)
             mic_pairs = []
             mic_1 = 0
             for mic_2 in range(mic_1+1, num_mics):
-                    mic_pairs.append((mic_1, mic_2))
+                mic_pairs.append((mic_1, mic_2))
 
         else:
             num_mic_pairs = (num_mics*(num_mics-1))//2
@@ -173,7 +175,18 @@ class MIMO_LossFunction(object):
         loss_mag = torch.sum(mag) / float(batch_size* n_frames * n_feats)
 
         for mic_pair_idx, mic_pair in enumerate(mic_pairs):
-            ph_diff[:,mic_pair_idx,:,: ] = lbl_mag[:,mic_pair[0],:,1:n_feats-1]*lbl_mag[:,mic_pair[1],:,1:n_feats-1]*torch.abs( (lbl_ph[:,mic_pair[0],:,:]-lbl_ph[:,mic_pair[1],:,:]) - (est_ph[:,mic_pair[0],:,:]-est_ph[:,mic_pair[1],:,:]) )
+            raw_ph_diff = (lbl_ph[:,mic_pair[0],:,:]-lbl_ph[:,mic_pair[1],:,:]) - (est_ph[:,mic_pair[0],:,:]-est_ph[:,mic_pair[1],:,:])
+            if "PD_UNW" in self.loss_flag:
+                ph_diff[:,mic_pair_idx,:,: ] = torch.abs( raw_ph_diff )
+            elif "PD_COS_UNW" in self.loss_flag:
+                #cosine
+                #we need min ph_diff -> max cosine value -> min -1*cos
+                ph_diff[:,mic_pair_idx,:,: ] = -1*torch.cos( raw_ph_diff )
+            elif "PD_COS_W" in self.loss_flag:
+                ph_diff[:,mic_pair_idx,:,: ] = -1*lbl_mag[:,mic_pair[0],:,1:n_feats-1]*lbl_mag[:,mic_pair[1],:,1:n_feats-1]*torch.cos( raw_ph_diff )
+            else:
+                #weighed abs ph diff
+                ph_diff[:,mic_pair_idx,:,: ] = lbl_mag[:,mic_pair[0],:,1:n_feats-1]*lbl_mag[:,mic_pair[1],:,1:n_feats-1]*torch.abs( raw_ph_diff )
 
         #loss = loss_ri + loss_mag 
 
@@ -204,7 +217,7 @@ class MIMO_LossFunction(object):
         elif "MIMO_RI_MAG_PD" in self.loss_flag:
             loss = loss_ri + loss_mag + 0.01*loss_ph_diff
         elif "MIMO_RI_PD" in self.loss_flag:
-            loss = loss_ri + 0.01*loss_ph_diff
+            loss = loss_ri + lam*loss_ph_diff  #0.01
         else:
             print("Invalid loss flag")
         

@@ -157,6 +157,15 @@ parser.add_argument('--doa_euclid_dist',
                     action='store_true',
                     help='Trainong Array jobs model')
 
+parser.add_argument('--doa_wgt_mech',
+                    type=str,
+                    default='',
+                    help='MASK or MAG')
+
+# fast_dev_Run
+parser.add_argument('--fast_dev_run',
+                    action='store_true',
+                    help='Code testing flag')
 if __name__=="__main__":
     args = parser.parse_args()
 

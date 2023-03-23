@@ -161,7 +161,7 @@ class Losscallbacks(Callback):
 		return
 
 class DOAcallbacks(Callback):
-	def __init__(self, array_config, dataset_dtype=None, dataset_condition=None, doa_tol = 5, doa_euclid_dist=False, mic_pairs=None):
+	def __init__(self, array_config, dataset_dtype=None, dataset_condition=None, doa_tol = 5, doa_euclid_dist=False, mic_pairs=None, wgt_mech=None):
 		self.frame_size = 320
 		self.frame_shift = 160    #TODO
 		#Computing DOA ( F -> T -> F) bcz of vad
@@ -180,6 +180,12 @@ class DOAcallbacks(Callback):
 		self.mic_pairs = mic_pairs #[(mic_1, mic_2) for mic_1 in range(0, self.num_mics) for mic_2 in range(mic_1+1, self.num_mics)]
 		#self.acc = 0
 		#self.files = 0
+		self.wgt_mech = wgt_mech
+
+	def get_mask(self, mix, est):
+		noise = est - mix
+		mask = torch.sqrt( torch.abs(est)**2/(torch.abs(noise)**2 + torch.abs(est)**2))
+		return mask
 
 	def format_istft(self, mix_ri_spec):
 		#adjusting shape, type for istft
@@ -424,12 +430,22 @@ class DOAcallbacks(Callback):
 		tgt_spec_cmplx = self.format_complex(tgt_ri_spec)
 		est_spec_cmplx = self.format_complex(est_ri_spec)
 
+		if self.wgt_mech=="MASK":
+			#mask
+			mix_wt = self.get_mask(mix_spec_cmplx, mix_spec_cmplx)
+			tgt_wt = self.get_mask(mix_spec_cmplx, tgt_spec_cmplx)
+			est_wt = self.get_mask(mix_spec_cmplx, est_spec_cmplx)
+		else:
+			mix_wt = torch.abs(mix_spec_cmplx)
+			tgt_wt = torch.abs(tgt_spec_cmplx)
+			est_wt = torch.abs(est_spec_cmplx)
 
-		mix_f_doa, mix_f_vals, mix_utt_doa, mix_2mic_f_doa, mix_2mic_utt_doa = gcc_phat_all_pairs(mix_spec_cmplx, torch.abs(mix_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+
+		mix_f_doa, mix_f_vals, mix_utt_doa, mix_2mic_f_doa, mix_2mic_utt_doa = gcc_phat_all_pairs(mix_spec_cmplx, mix_wt, 16000, self.frame_size, self.local_mic_pos, 
 								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
-		tgt_f_doa, tgt_f_vals, tgt_utt_doa, tgt_2mic_f_doa, tgt_2mic_utt_doa  = gcc_phat_all_pairs(tgt_spec_cmplx, torch.abs(tgt_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+		tgt_f_doa, tgt_f_vals, tgt_utt_doa, tgt_2mic_f_doa, tgt_2mic_utt_doa = gcc_phat_all_pairs(tgt_spec_cmplx, tgt_wt, 16000, self.frame_size, self.local_mic_pos, 
 								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
-		est_f_doa, est_f_vals, est_utt_doa, est_2mic_f_doa, est_2mic_utt_doa  = gcc_phat_all_pairs(est_spec_cmplx, torch.abs(est_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+		est_f_doa, est_f_vals, est_utt_doa, est_2mic_f_doa, est_2mic_utt_doa = gcc_phat_all_pairs(est_spec_cmplx, est_wt, 16000, self.frame_size, self.local_mic_pos, 
 								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
 
 		if "real_rirs" not in self.array_config:
@@ -512,6 +528,169 @@ class DOAcallbacks(Callback):
 					f'../signals/real_rirs_dbg/doa_{0.61}_{batch_idx}_tol_{self.tol}deg_euclid_{self.euclid_dist}_2mic_rir_dp_t60_0_train_MIMO_RI_PD_mag_compression.pt', 
 			)
 		"""
+		return
+	
+
+	def _batch_metrics_v3(self, batch, outputs, batch_idx):
+		mix_ri_spec, tgt_ri_spec, doa = batch
+		est_ri_spec_all = outputs['est_ri_spec']  #(b, n_ch, T, F)
+
+		num_batches = est_ri_spec_all.shape[0]
+		num_mics = est_ri_spec_all.shape[1]//2
+		## SE metrics
+		#adjusting shape, type for istft
+		mix_sig = self.format_istft(mix_ri_spec)
+		est_sig_all = self.format_istft(est_ri_spec_all)
+		tgt_sig = self.format_istft(tgt_ri_spec)
+
+		#normalize the signals --- observed improves webrtc vad 
+		mix_sig = mix_sig/torch.max(torch.abs(mix_sig))
+		tgt_sig = tgt_sig/torch.max(torch.abs(tgt_sig))
+
+		est_sig_all = est_sig_all #/torch.max(torch.abs(est_sig_all))
+		
+		torchaudio.save(f'../signals/real_rirs_dbg_setup/loss_functions_comparison_4mic_diffuse_noisy_reverb/mix_{batch_idx}.wav', (mix_sig/torch.max(torch.abs(mix_sig))).cpu(), sample_rate=16000)
+		torchaudio.save(f'../signals/real_rirs_dbg_setup/loss_functions_comparison_4mic_diffuse_noisy_reverb/tgt_{batch_idx}.wav', (tgt_sig/torch.max(torch.abs(tgt_sig))).cpu(), sample_rate=16000)
+			
+		mix_metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), mix_sig.cpu().numpy())
+		self.log("MIX_SNR", mix_metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_STOI", mix_metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_ESTOI", mix_metrics['e_stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_PESQ_NB", mix_metrics['pesq_nb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log("MIX_PESQ_WB", mix_metrics['pesq_wb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+		
+		for idx in range(num_batches):
+			est_sig = est_sig_all[idx*num_mics:idx*num_mics+num_mics,:]
+			est_sig = est_sig/torch.max(torch.abs(est_sig))
+			torchaudio.save(f'../signals/real_rirs_dbg_setup/loss_functions_comparison_4mic_diffuse_noisy_reverb/est_{batch_idx}_{idx}.wav', (est_sig/torch.max(torch.abs(est_sig))).cpu(), sample_rate=16000)
+
+			est_ri_spec = est_ri_spec_all[[idx]]
+			
+			_metrics = eval_metrics_batch_v1(tgt_sig.cpu().numpy(), est_sig.cpu().numpy())
+			self.log("SNR", _metrics['snr'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("STOI", _metrics['stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("ESTOI", _metrics['e_stoi'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("PESQ_NB", _metrics['pesq_nb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("PESQ_WB", _metrics['pesq_wb'], on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+			"""
+			opinion = None
+			opinion = "good" if (_metrics['stoi'] - mix_metrics['stoi']) > 0.2 else opinion
+			opinion = "decent" if (_metrics['stoi'] - mix_metrics['stoi']) < 0.05 else opinion
+
+			if opinion:
+				trainer.logger.experiment.add_audio(f'mix_{batch_idx}_{opinion}', mix_sig/torch.max(torch.abs(mix_sig)), sample_rate=16000)
+				trainer.logger.experiment.add_audio(f'tgt_{batch_idx}_{opinion}', tgt_sig/torch.max(torch.abs(tgt_sig)), sample_rate=16000)
+				trainer.logger.experiment.add_audio(f'est_{batch_idx}_{opinion}', est_sig/torch.max(torch.abs(est_sig)), sample_rate=16000)
+
+			"""
+
+
+			#Vad 
+			vad_comp_sig = tgt_sig if "real_rirs" not in self.array_config else est_sig
+			
+			sig_vad_1 = compute_vad(vad_comp_sig[0,:].cpu().numpy(), self.frame_size, self.frame_shift)
+			sig_vad_2 = compute_vad(vad_comp_sig[1,:].cpu().numpy(), self.frame_size, self.frame_shift)
+			tgt_sig_vad = sig_vad_1*sig_vad_2
+			tgt_sig_vad = tgt_sig_vad.to(device=tgt_sig.device)
+
+
+			mix_spec_cmplx = self.format_complex(mix_ri_spec)
+			tgt_spec_cmplx = self.format_complex(tgt_ri_spec)
+			est_spec_cmplx = self.format_complex(est_ri_spec)
+
+			#removing spatial aliasing freq bins
+
+
+			mix_f_doa, mix_f_vals, mix_utt_doa, mix_2mic_f_doa, mix_2mic_utt_doa = gcc_phat_all_pairs(mix_spec_cmplx, torch.abs(mix_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
+			tgt_f_doa, tgt_f_vals, tgt_utt_doa, tgt_2mic_f_doa, tgt_2mic_utt_doa = gcc_phat_all_pairs(tgt_spec_cmplx, torch.abs(tgt_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
+			est_f_doa, est_f_vals, est_utt_doa, est_2mic_f_doa, est_2mic_utt_doa = gcc_phat_all_pairs(est_spec_cmplx, torch.abs(est_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
+
+			if "real_rirs" not in self.array_config:
+				ref_f_doa = tgt_f_doa
+				ref_2mic_f_doa = tgt_2mic_f_doa
+			else:
+				ref_f_doa = torch.rad2deg(doa[:,:,-1])[0,:mix_f_doa.shape[0]]
+				ref_2mic_f_doa = ref_f_doa
+			
+			mix_frm_Acc = self.get_acc(tgt_sig_vad, mix_f_doa, ref_f_doa, tol=self.tol, vad_th=0.6)
+			est_frm_Acc = self.get_acc(tgt_sig_vad, est_f_doa, ref_f_doa, tol=self.tol, vad_th=0.6)
+
+			mix_2mic_frm_Acc = self.get_acc(tgt_sig_vad, mix_2mic_f_doa, ref_2mic_f_doa, tol=self.tol, vad_th=0.6)
+			est_2mic_frm_Acc = self.get_acc(tgt_sig_vad, est_2mic_f_doa, ref_2mic_f_doa, tol=self.tol, vad_th=0.6)
+
+			"""
+			blk_size = 25
+			mix_blk_vals = block_doa(frm_val=mix_f_vals, block_size=blk_size)
+			tgt_blk_vals = block_doa(frm_val=tgt_f_vals, block_size=blk_size)
+			est_blk_vals = block_doa(frm_val=est_f_vals, block_size=blk_size)
+
+			#lbl_blk_doa, lbl_blk_range = block_lbl_doa(lbl_doa, block_size=blk_size)
+			tgt_blk_vad = blk_vad(tgt_sig_vad, blk_size)
+			#breakpoint()
+			if "real_rirs" not in self.array_config:
+				ref_blk_vals = tgt_blk_vals
+			else:
+				ref_blk_vals, _ = block_lbl_doa(doa, block_size=blk_size)#block_doa(frm_val=ref_f_doa, block_size=blk_size)
+
+			mix_Acc = self.get_acc(tgt_blk_vad, mix_blk_vals, ref_blk_vals, tol=self.tol)
+			est_Acc = self.get_acc(tgt_blk_vad, est_blk_vals, ref_blk_vals, tol=self.tol)
+			"""
+			#Utterance level
+			doa_degrees = torch.abs(torch.rad2deg(doa[:,:,-1])[0,0])
+			mix_utt_Acc = 1 if torch.abs(mix_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
+			est_utt_Acc = 1 if torch.abs(est_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
+
+			mix_2mic_utt_Acc = 1.0 if torch.abs(mix_2mic_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
+			est_2mic_utt_Acc = 1.0 if torch.abs(est_2mic_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
+			
+			self.log("mix_frm_Acc", mix_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("est_frm_Acc", est_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			#self.log("mix_blk_Acc", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			#self.log("est_blk_Acc", est_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("mix_utt_Acc", mix_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("est_utt_Acc", est_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			
+			self.log("mix_2mic_frm_Acc", mix_2mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("est_2mic_frm_Acc", est_2mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("mix_2mic_utt_Acc", mix_2mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+			self.log("est_2mic_utt_Acc", est_2mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+			#print(batch_idx, mix_frm_Acc, est_frm_Acc, mix_Acc, est_Acc)
+			print(batch_idx, idx, mix_frm_Acc, est_frm_Acc, doa_degrees, mix_utt_doa, est_utt_doa, mix_utt_Acc, est_utt_Acc)
+			print(batch_idx, idx, mix_2mic_frm_Acc, est_2mic_frm_Acc, doa_degrees, mix_2mic_utt_doa, est_2mic_utt_doa, mix_2mic_utt_Acc, est_2mic_utt_Acc)
+			
+			#don't care for simulated rirs
+			if "real_rirs" in self.array_config and ( not (doa_degrees==0 or doa_degrees==180)):
+
+				#self.acc += est_utt_Acc
+				#self.files += 1
+				#print(batch_idx, self.acc, self.files)
+
+				self.log("mix_frm_Acc_excluded_endfire", mix_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				self.log("est_frm_Acc_excluded_endfire", est_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				#self.log("mix_blk_Acc_excluded_endfire", mix_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				#self.log("est_blk_Acc_excluded_endfire", est_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				self.log("mix_utt_Acc_excluded_endfire", mix_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				self.log("est_utt_Acc_excluded_endfire", est_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+				self.log("mix_2mic_frm_Acc_excluded_endfire", mix_2mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				self.log("est_2mic_frm_Acc_excluded_endfire", est_2mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				self.log("mix_2mic_utt_Acc_excluded_endfire", mix_2mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				self.log("est_2mic_utt_Acc_excluded_endfire", est_2mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+				
+			
+			torch.save({'mix': (mix_f_doa, mix_f_vals, mix_utt_doa),
+						'tgt': (tgt_f_doa, tgt_f_vals, tgt_sig_vad, tgt_utt_doa),
+						'est': (est_f_doa, est_f_vals, est_utt_doa),
+						'doa': doa }, 
+						f'../signals/real_rirs_dbg_setup/loss_functions_comparison_4mic_diffuse_noisy_reverb/doa_{0.61}_{batch_idx}_{idx}_tol_{self.tol}deg_euclid_{self.euclid_dist}.pt', 
+				)
+			
 		return
 	
 	def on_test_batch_end(

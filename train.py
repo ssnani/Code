@@ -213,11 +213,11 @@ def main(args):
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	train_dataset = MovingSourceDataset(dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
 										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
-										noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=2
+										noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=20)
 
 	dev_dataset = MovingSourceDataset(val_dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
-									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=2
+									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=20
 
 
 	# model
@@ -227,7 +227,7 @@ def main(args):
 
 	## exp path directories
 
-	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
 	msg_pre_trained = None
@@ -260,7 +260,7 @@ def main(args):
 					log_every_n_steps = 1,
 					num_sanity_val_steps=-1,
 					profiler="simple",
-					fast_dev_run=False,
+					fast_dev_run=args.fast_dev_run,
 					auto_scale_batch_size=False,
 					detect_anomaly=True#,
 					#gradient_clip_val=0.5
@@ -292,6 +292,7 @@ def test(args):
 	# DOA arguments
 	doa_tol = args.doa_tol
 	doa_euclid_dist = args.doa_euclid_dist
+	wgt_mech = args.doa_wgt_mech
 
 	if 0:
 		T60 = args.T60 
@@ -339,12 +340,11 @@ def test(args):
 
 	num_mics = array_config["num_mics"]
 
-	"""
-	if "MIMO_RI_PD_REF" == loss_flag:
-		mic_1 = 0
-		mic_pairs = [(mic_1, mic_2) for mic_2 in range(mic_1+1, num_mics)]
-	else:	
-	"""
+	
+	#if "MIMO_RI_PD_REF" == loss_flag:
+	#	mic_1 = 0
+	#	mic_pairs = [(mic_1, mic_2) for mic_2 in range(mic_1+1, num_mics)]
+	#else:	
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
 	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=20,
@@ -366,7 +366,7 @@ def test(args):
 		app_str = f'snr_{SNR}dB'
 	elif args.dataset_condition =="noisy_reverb":
 		app_str = f't60_{T60}_snr_{SNR}dB'
-		ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
+		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'  #{noise_simulation}
 	else:
 		app_str = ''
 
@@ -374,25 +374,31 @@ def test(args):
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
-	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
-						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs)], #Losscallbacks(),
+	trainer = pl.Trainer(accelerator='cpu', precision=precision, #devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
+						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
+
+	#getting model
+	for _file in os.listdir(ckpt_dir):
+		if _file.endswith(".ckpt") and _file[:5]=="epoch":
+			model_path = _file
+
 	
 	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, precision: {precision}, \n \
 		ckpt_dir: {ckpt_dir}, exp_name: {exp_name}, \n \
 		net_inp: {net_inp}, net_out: {net_out}, \n \
-		model: {args.model_path}, ref_mic_idx : {ref_mic_idx}, \n \
+		model: {model_path}, ref_mic_idx : {ref_mic_idx}, \n \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n\
-		doa_tol: {doa_tol}, doa_euclid_dist: {doa_euclid_dist} \n"
+		doa_tol: {doa_tol}, doa_euclid_dist: {doa_euclid_dist}, doa_wgt_mech: {wgt_mech} \n"
 
 	trainer.logger.experiment.add_text("Exp details", msg)
 
 	print(msg)
 
-	if os.path.exists(os.path.join(ckpt_dir, args.model_path)):
-		model = DCCRN_model.load_from_checkpoint(os.path.join(ckpt_dir, args.model_path), bidirectional=bidirectional, 
+	if os.path.exists(os.path.join(ckpt_dir, model_path)):  #args.
+		model = DCCRN_model.load_from_checkpoint(os.path.join(ckpt_dir, model_path), bidirectional=bidirectional, #args.
 					   							net_inp=net_inp, net_out=net_out,
 		        								train_dataset=None, val_dataset=None, loss_flag=loss_flag)
 		trainer.test(model, dataloaders=test_loader)

@@ -314,7 +314,8 @@ class MovingSourceDataset(Dataset):
 
 				noi_reverb, _ = self.gen_signal(noi, noise_traj_pts, noise_rirs)
 			else:
-				noi_reverb = self.gen_diffuse_noise_signals(T60, src_azimuth, nb_noise_points=72)
+				src_theta, nb_noise_points, res = (src_azimuth, 72, 5) if "real_rirs" not in self.array_config else (0, 13, 15)
+				noi_reverb = self.gen_diffuse_noise_signals(T60, src_theta, nb_noise_points, res)
 			
 
 		if self.dataset_condition == "noisy_reverb" or self.dataset_condition == "noisy":
@@ -487,15 +488,15 @@ class MovingSourceDataset(Dataset):
 
 		return source_rirs, dp_source_rirs
 
-	def gen_diffuse_noise_signals(self, t60, theta, nb_noise_points=72):
+	def gen_diffuse_noise_signals(self, t60, theta, nb_noise_points=72, res=5):
 		#generates diffuse signals of length (fs*T) from 72 directions[0,360,5(inc)]
 		spk_list = random.sample(self.noi_spk_list, nb_noise_points)
-		theta_list = np.array([(theta + idx*5)%360 for idx in range(nb_noise_points)])
+
+		theta_list = np.array([(theta + idx*res)%360 for idx in range(nb_noise_points)])
 		
 		rirs, _ = self.get_rirs(theta_list[:,0], t60)
-		
 		#rirs, _ = self.rir_interface.get_rirs(t60, idx_list=theta_list)
-		signals = torch.zeros(72,self.fs*self.T)
+		signals = torch.zeros(nb_noise_points,self.fs*self.T)
 		for spk_idx, spk in enumerate(spk_list):
 			sig, fs = torchaudio.load(spk)
 			if self.fs != fs:

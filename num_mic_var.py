@@ -21,33 +21,55 @@ import torchaudio
 import os
 from arg_parser import parser
 
-class DOA_MIMO_fwk(pl.LightningModule):
+class DOA_MIMO_fwk_num_mics(pl.LightningModule):
 	
-	def __init__(self, array_setup, net_inp: int, net_out: int, model_paths: list):
+	def __init__(self, array_setup, model_parse_info: list):
 		super().__init__()
 		self.array_setup = array_setup
-		self.bidirectional = True
-	
-		self.model_paths = model_paths 
-		self.models = [ DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional,  net_inp=net_inp, net_out=net_out,
-						   train_dataset=None, val_dataset=None, loss_flag="MIMO") 
-		              for model_path in self.model_paths]
+		
+		self.get_model_paths_input(model_parse_info)
+		
 
-	
-	def forward(self, input_batch):
+	def get_model_paths_input(self, parse_info: list [list]):
+		# assuming [[net_inp, net_out, model_path],....]
+		self.bidirectional = True
+		map_location = 'cuda:0'
+		self.models_2mic, self.models_4mic = [], []
+		for idx, lst_val in enumerate(parse_info):
+			net_inp, net_out, model_path = lst_val[0], lst_val[1], lst_val[2]
+			_model = DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional,  net_inp=net_inp, net_out=net_out,
+						   train_dataset=None, val_dataset=None, loss_flag="MIMO")
+			_model.cuda()
+			if 4==net_inp:
+				self.models_2mic.append(_model)
+			else:
+				self.models_4mic.append(_model)
+				
+		#nn.ModuleList(self.models_2mic)
+		#nn.ModuleList(self.models_4mic)
+		
+
+	def forward(self, input_batch, models):
 		mix_ri_spec, tgt_ri_spec, doa = input_batch
 		_est_ri_spec = []
-		for _model in self.models:
-			_model.cuda()
+	
+		for _model in models:
+			#_model.cuda()
 			est_ri_spec, _, _ = _model(input_batch)
+
 			_est_ri_spec.append(est_ri_spec)
+			
 		est_ri_spec = torch.concat(_est_ri_spec)
 
 		return est_ri_spec
 
 	def test_step(self, test_batch, batch_idx):
-		est_ri_spec = self.forward(test_batch)
-		return {"est_ri_spec" : est_ri_spec }
+		mix_ri_spec, tgt_ri_spec, doa = test_batch
+		test_batch_2mic = (mix_ri_spec[:,2:6,:,:], tgt_ri_spec[:,2:6,:,:], doa)
+
+		est_ri_spec_4mic = self.forward(test_batch, self.models_4mic)
+		est_ri_spec_2mic = self.forward(test_batch_2mic, self.models_2mic)
+		return {"est_4mic_ri_spec" : est_ri_spec_4mic, "est_2mic_ri_spec" : est_ri_spec_2mic }
 	
 	def training_step(self, test_batch, batch_idx):
 		pass
@@ -73,7 +95,7 @@ class DOA_MIMO_fwk(pl.LightningModule):
 		return mix_sig
 
 
-def test_doa(args, loss_flags: list):
+def test_doa(args, models_info: list, loss_list):
 
 	T = 4
 	ref_mic_idx = args.ref_mic_idx
@@ -139,21 +161,14 @@ def test_doa(args, loss_flags: list):
 	"""
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=5,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
 	test_loader = DataLoader(test_dataset, batch_size = args.batch_size,
 							 num_workers=args.num_workers, pin_memory=True, drop_last=True)  
 
-	## exp path directories
-	model_paths = []
-
-	for _loss_flag in loss_flags:
-		ckpt_dir_1 = f'{args.ckpt_dir}/{_loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}' #{noise_simulation}/
-		for _file in os.listdir(ckpt_dir_1):
-			if _file.endswith(".ckpt") and _file[:5]=="epoch":
-				model_paths.append(os.path.join(ckpt_dir_1, _file))
+	## exp path director
 
 	
 	#ckpt_dir = f'{args.ckpt_dir}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
@@ -173,12 +188,13 @@ def test_doa(args, loss_flags: list):
 	else:
 		app_str = ''
 
-	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}_loss_functions_comparison'
+	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}_loss_functions_comparison_num_mic'
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
-						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_flags)], #Losscallbacks(),
+						callbacks=[ DOAcallbacks(array_config=array_config, dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
+			       						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -187,7 +203,7 @@ def test_doa(args, loss_flags: list):
 	msg = f"Test Config: bidirectional: {bidirectional}, T: {T}, batch_size: {args.batch_size}, precision: {precision}, \n \
 		ckpt_dir: {args.ckpt_dir}, exp_name: {exp_name}, \n \
 		net_inp: {net_inp}, net_out: {net_out}, \n \
-		models: {model_paths} ref_mic_idx : {ref_mic_idx}, \n \
+		models: {models_info} ref_mic_idx : {ref_mic_idx}, \n \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n\
 		doa_tol: {doa_tol}, doa_euclid_dist: {doa_euclid_dist}, doa_wgt_mech: {wgt_mech} \n"
 
@@ -195,21 +211,36 @@ def test_doa(args, loss_flags: list):
 
 	print(msg)
 	
-	model = DOA_MIMO_fwk(array_config['array_setup'], net_inp, net_out, model_paths)
+	model = DOA_MIMO_fwk_num_mics(array_config['array_setup'], models_info)
 	trainer.test(model, dataloaders=test_loader)
 
 if __name__=="__main__":
 	#flags
 	args = parser.parse_args()
+	dataset_dtype = args.dataset_dtype
+	dataset_condition = args.dataset_condition
+	ref_mic_idx = args.ref_mic_idx
+	noise_simulation = args.noise_simulation
 
 	print("Testing\n")
 	print(f"{torch.cuda.is_available()}, {torch.cuda.device_count()}\n")
+
 	
-	#loss_list = ["MIMO_RI", "MIMO_RI_MAG", "MIMO_RI_MAG_PD", "MIMO_RI_PD"]
-	loss_list = ["MIMO_RI_MAG_PD", "MIMO_RI"]
+	loss_list = ["MIMO_RI", "MIMO_RI_MAG", "MIMO_RI_MAG_PD", "MIMO_RI_PD", "MIMO_RI_PD_REF"]
+	#loss_list = ["MIMO_RI_MAG_PD", "MIMO_RI"]
 	#if '4mic' in args.ckpt_dir:
 	#	loss_list.append("MIMO_RI_PD_REF")
-	
+	models_info = []
+	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_dp_rir_t60_0', '/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_4mic_dp_rir_t60_0']
+	for ckpt_dir in ckpt_dirs:
+		net_inp, net_out = (8,8) if '4mic' in ckpt_dir else (4,4)
+		for _loss_flag in loss_list:
+			ckpt_dir_1 = f'{ckpt_dir}/{_loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}' #
+			if os.path.exists(ckpt_dir_1):
+				for _file in os.listdir(ckpt_dir_1):
+					if _file.endswith(".ckpt") and _file[:5]=="epoch":
+						models_info.append((net_inp,net_out , os.path.join(ckpt_dir_1, _file)))
 
-	test_doa(args, loss_list)
+	#breakpoint()
+	test_doa(args, models_info, loss_list)
 

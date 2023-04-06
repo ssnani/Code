@@ -5,7 +5,7 @@ import numpy as np
 """
 rirs are created for 
 -   Linear 2-Mic array with 10cm, 8cm
--   Room_size :  [8,8,3]
+-   Room_size :  [8,8,3], [6,6,2.4]
 -   Array_pos :  Room Center
 -   Src w.r.t Mic  :  On Circle with radius 1m
 """
@@ -165,14 +165,17 @@ class gannot_sim_RIR_Interface():
         return self.rirs_list[t60_key][idx_list,:,:], self.rirs_list[0][idx_list,:,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
 
 if __name__=="__main__":
-    array_type, num_mics, intermic_dist,  room_size = 'linear', 4, 8.0,  ['6', '6', '2.4']
+    array_type, num_mics, intermic_dist,  room_size = 'linear', 2, 8.0,  ['6', '6', '2.4']
     
     rir_interface = taslp_RIR_Interface(array_type, num_mics, intermic_dist, room_size, None)
     rirs, dp_rirs = rir_interface.get_rirs(t60=0.2, idx_list=[4])
     #rirs_0, dp_rirs_0 = rir_interface.get_rirs(t60=0.0, idx_list=[4])
 
     tr_rir_interface = taslp_RIR_Interface(array_type, num_mics, intermic_dist, room_size, True)
-    tr_rirs, tr_dp_rirs = tr_rir_interface.get_rirs(t60=0.2, idx_list=[4])
+    tr_rirs, tr_dp_rirs = tr_rir_interface.get_rirs(t60=0.6, idx_list=[30, 360-30, 180-30, 180+30])
+
+    #tr_rir_interface_4 = taslp_RIR_Interface(array_type, 4, intermic_dist, room_size, True)
+    #tr_rirs_4, tr_dp_rirs_4 = tr_rir_interface_4.get_rirs(t60=0.6, idx_list=[10,360-10, 180-10])
     #rirs_0, dp_rirs_0 = rir_interface.get_rirs(t60=0.0, idx_list=[4])
 
     breakpoint()

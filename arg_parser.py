@@ -52,7 +52,10 @@ parser.add_argument('--ref_mic_idx',
 parser.add_argument('--train',
                     action='store_true',
                     help='Trained model to test')
-
+parser.add_argument('--loss_wgt_mech',
+                    type=str,
+                    default='',
+                    help='MASK or MAG')
 
 # Dataset Files
 parser.add_argument('--dataset_file',

@@ -302,7 +302,7 @@ class MovingSourceDataset(Dataset):
 			if "point_source"==self.noise_simulation:
 				noi, fs_noi = torchaudio.load(line_info[1])
 				if self.fs != fs_noi:
-					noi = torchaudio.functional.resample(sph, fs_noi, self.fs)	
+					noi = torchaudio.functional.resample(noi, fs_noi, self.fs)	
 				noi = self.get_random_seg(noi,self.fs*self.T)
 
 				noise_pos = cfg['noise_pos']

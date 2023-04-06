@@ -20,12 +20,12 @@ from debug import dbg_print
 from callbacks import Losscallbacks, DOAcallbacks, GradNormCallback
 
 class DCCRN_model(pl.LightningModule):
-	def __init__(self, bidirectional: bool, net_inp: int, net_out: int, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, loss_flag=None):
+	def __init__(self, bidirectional: bool, net_inp: int, net_out: int, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, loss_flag=None, wgt_mech=None):
 		super().__init__()
 		pl.seed_everything(77)
 
 		self.model = MIMO_Net(bidirectional, net_inp, net_out) #MIMO_Net(bidirectional) if "MIMO" in loss_flag else Net(bidirectional) # in 
-		self.loss = MIMO_LossFunction(loss_flag) if "MIMO" in loss_flag else LossFunction(loss_flag)
+		self.loss = MIMO_LossFunction(loss_flag, wgt_mech, net_out) if "MIMO" in loss_flag else LossFunction(loss_flag)
 
 		self.batch_size = batch_size
 		self.num_workers = num_workers
@@ -33,6 +33,7 @@ class DCCRN_model(pl.LightningModule):
 		self.val_dataset = val_dataset
 
 		self.loss_flag = loss_flag
+		self.wgt_mech = wgt_mech
 
 
 	def train_dataloader(self):
@@ -52,13 +53,14 @@ class DCCRN_model(pl.LightningModule):
 	def forward(self, input_batch):
 		mix_ri_spec, tgt_ri_spec, doa = input_batch
 		est_ri_spec = self.model(mix_ri_spec)
-		return est_ri_spec, tgt_ri_spec
+		return est_ri_spec, tgt_ri_spec, mix_ri_spec
 
 	def training_step(self, train_batch, batch_idx):
-		est_ri_spec, tgt_ri_spec = self.forward(train_batch)
+
+		est_ri_spec, tgt_ri_spec, mix_ri_spec = self.forward(train_batch)
 		
 		if "MIMO" in self.loss_flag:
-			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
+			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, mix_ri_spec)
 		else:
 			loss, loss_ri, loss_mag, loss_ph = self.loss(est_ri_spec, tgt_ri_spec)
 
@@ -75,10 +77,10 @@ class DCCRN_model(pl.LightningModule):
 
 
 	def validation_step(self, val_batch, batch_idx):
-		est_ri_spec, tgt_ri_spec = self.forward(val_batch)
+		est_ri_spec, tgt_ri_spec, mix_ri_spec = self.forward(val_batch)
 		
 		if "MIMO" in self.loss_flag:
-			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
+			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, mix_ri_spec)
 		else:
 			loss, loss_ri, loss_mag, loss_ph  = self.loss(est_ri_spec, tgt_ri_spec) 
 
@@ -95,10 +97,10 @@ class DCCRN_model(pl.LightningModule):
 
 
 	def test_step(self, test_batch, batch_idx):
-		est_ri_spec, tgt_ri_spec = self.forward(test_batch)
+		est_ri_spec, tgt_ri_spec, mix_ri_spec = self.forward(test_batch)
 
 		if "MIMO" in self.loss_flag:
-			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, self.current_epoch)
+			loss, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss(est_ri_spec, tgt_ri_spec, mix_ri_spec)
 		else:
 			loss, loss_ri, loss_mag, loss_ph  = self.loss(est_ri_spec, tgt_ri_spec) 
 
@@ -198,7 +200,7 @@ def main(args):
 
 	noise_simulation = args.noise_simulation
 	diffuse_files_path = args.diffuse_files_path
-
+	loss_wgt_mech = args.loss_wgt_mech
 	#loss_flag
 	net_inp = array_config["num_mics"]*2
 
@@ -222,12 +224,14 @@ def main(args):
 
 	# model
 	bidirectional = args.bidirectional
-	model = DCCRN_model(bidirectional, net_inp, net_out, train_dataset, dev_dataset, args.batch_size, args.num_workers, loss_flag)
+	model = DCCRN_model(bidirectional, net_inp, net_out, train_dataset, dev_dataset, args.batch_size, args.num_workers, loss_flag, loss_wgt_mech)
 
 
 	## exp path directories
-
-	ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
+	if dataset_condition=="reverb":
+		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
+	else:
+		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}_{loss_wgt_mech}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
 	msg_pre_trained = None
@@ -262,8 +266,8 @@ def main(args):
 					profiler="simple",
 					fast_dev_run=args.fast_dev_run,
 					auto_scale_batch_size=False,
-					detect_anomaly=True#,
-					#gradient_clip_val=0.5
+					detect_anomaly=True,
+					#gradient_clip_val=5
 					)
 	
 	#trainer.tune(model)
@@ -364,6 +368,7 @@ def test(args):
 		ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'   #{noise_simulation}/
 	elif args.dataset_condition =="noisy":
 		app_str = f'snr_{SNR}dB'
+		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'  #{noise_simulation}
 	elif args.dataset_condition =="noisy_reverb":
 		app_str = f't60_{T60}_snr_{SNR}dB'
 		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'  #{noise_simulation}
@@ -374,7 +379,7 @@ def test(args):
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
-	trainer = pl.Trainer(accelerator='cpu', precision=precision, #devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
+	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
 						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech)], #Losscallbacks(),
 						logger=tb_logger
 						)

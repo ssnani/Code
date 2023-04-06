@@ -33,7 +33,7 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     #weightage
     if weighted:
-        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 1) #0.3
+        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 1) # 0.3) # 
 
 
     angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(1, freq, dtype=torch.float32)
@@ -99,6 +99,7 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
 
 def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs):
+    #print(X.shape)
     num_mics, num_frames, num_freq = X.shape
     #mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
@@ -121,6 +122,7 @@ def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos,
         if centre_mic_pair == mic_pair:
             X_2mic_doa = X_pair_doa
             X_2mic_utt_doa = X_pair_utt_doa
+            X_2mic_frm_vals = X_frm_vals
 
 
         pair_acc_X_frm_vals += X_frm_vals
@@ -130,7 +132,7 @@ def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos,
     utt_sum = torch.sum(pair_acc_X_frm_vals,dim=1)
     utt_doa_idx = torch.argmax(utt_sum)
 
-    return doa_idx, pair_acc_X_frm_vals, utt_doa_idx, X_2mic_doa, X_2mic_utt_doa
+    return doa_idx, pair_acc_X_frm_vals, utt_doa_idx, X_2mic_doa, X_2mic_utt_doa, X_2mic_frm_vals
     
     
 

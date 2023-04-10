@@ -25,6 +25,7 @@ class DCCRN_model(pl.LightningModule):
 		pl.seed_everything(77)
 
 		self.model = MIMO_Net(bidirectional, net_inp, net_out) #MIMO_Net(bidirectional) if "MIMO" in loss_flag else Net(bidirectional) # in 
+		
 		self.loss = MIMO_LossFunction(loss_flag, wgt_mech, net_out) if "MIMO" in loss_flag else LossFunction(loss_flag)
 
 		self.batch_size = batch_size
@@ -351,7 +352,7 @@ def test(args):
 	#else:	
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=20,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=1,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -365,7 +366,7 @@ def test(args):
 
 	if args.dataset_condition =="reverb":
 		app_str = f't60_{T60}'
-		ckpt_dir = f'{args.ckpt_dir}/{dataset_condition}/ref_mic_{ref_mic_idx}'   #{noise_simulation}/
+		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'   #{noise_simulation}/
 	elif args.dataset_condition =="noisy":
 		app_str = f'snr_{SNR}dB'
 		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'  #{noise_simulation}
@@ -406,6 +407,7 @@ def test(args):
 		model = DCCRN_model.load_from_checkpoint(os.path.join(ckpt_dir, model_path), bidirectional=bidirectional, #args.
 					   							net_inp=net_inp, net_out=net_out,
 		        								train_dataset=None, val_dataset=None, loss_flag=loss_flag)
+
 		trainer.test(model, dataloaders=test_loader)
 	else:
 		print(f"Model path not found in {ckpt_dir}")

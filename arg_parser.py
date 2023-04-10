@@ -165,6 +165,10 @@ parser.add_argument('--doa_wgt_mech',
                     default='',
                     help='MASK or MAG')
 
+parser.add_argument('--dbg_doa_log',
+                    action='store_true',
+                    help='Trainong Array jobs model')
+
 # fast_dev_Run
 parser.add_argument('--fast_dev_run',
                     action='store_true',

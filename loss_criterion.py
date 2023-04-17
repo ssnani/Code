@@ -1,5 +1,7 @@
 import torch
 
+OLD_IMPLEMENTATION = False
+
 class LossFunction(object):
     def __init__(self, loss_flag):
         self.eps = torch.finfo(torch.float32).eps
@@ -134,6 +136,7 @@ class MIMO_LossFunction(object):
 
         self.num_mics = net_out//2
         self.mic_pairs, self.num_mic_pairs = self.get_info_mic_pairs(self.num_mics)
+        self.ph_diff_loop_range = 1 if "PD_REF" in self.loss_flag else (self.num_mics - 1)
 
 
     def get_lam(self, loss_flag, wgt_mech):
@@ -182,7 +185,8 @@ class MIMO_LossFunction(object):
 
         lbl_ph  = torch.zeros(batch_size, self.num_mics, n_frames, n_feats-2)
         est_ph  = torch.zeros(batch_size, self.num_mics, n_frames, n_feats-2)
-        ph_diff = torch.zeros(batch_size, self.num_mic_pairs, n_frames, n_feats-2)
+
+        
 
         for idx in range(self.num_mics):
             lbl_mag[:, idx, :,:], lbl_ph[:, idx, :,:] = self.get_mag_ph(lbl[:,idx*2:idx*2+2,:,:])
@@ -195,30 +199,49 @@ class MIMO_LossFunction(object):
         ri = torch.abs(est - lbl)
         mag = torch.abs(est_mag - lbl_mag) # + torch.abs(est_mag_2 - lbl_mag_2)
         
-        loss_ri = torch.sum(ri) / float(batch_size* n_frames * n_feats)
-        loss_mag = torch.sum(mag) / float(batch_size* n_frames * n_feats)
+        loss_ri = torch.sum(ri) / float(batch_size* self.num_mics * n_frames * n_feats)
+        loss_mag = torch.sum(mag) / float(batch_size* self.num_mics * n_frames * n_feats)
 
-        for mic_pair_idx, mic_pair in enumerate(self.mic_pairs):
-            raw_ph_diff = (lbl_ph[:,mic_pair[0],:,:]-lbl_ph[:,mic_pair[1],:,:]) - (est_ph[:,mic_pair[0],:,:]-est_ph[:,mic_pair[1],:,:])
+        if OLD_IMPLEMENTATION:
+            ph_diff = torch.zeros(batch_size, self.num_mic_pairs, n_frames, n_feats-2)
+            for mic_pair_idx, mic_pair in enumerate(self.mic_pairs):
+                raw_ph_diff = (lbl_ph[:,mic_pair[0],:,:]-lbl_ph[:,mic_pair[1],:,:]) - (est_ph[:,mic_pair[0],:,:]-est_ph[:,mic_pair[1],:,:])
+                if self.wgt_mech=="MASK":
+                    irm_mask = self.get_mask(lbl_mag, noise_mag)   
+                    wt = irm_mask[:,mic_pair[0],:,1:n_feats-1]*irm_mask[:,mic_pair[1],:,1:n_feats-1]
+                else:
+                    wt = lbl_mag[:,mic_pair[0],:,1:n_feats-1]*lbl_mag[:,mic_pair[1],:,1:n_feats-1]
+
+
+                if "PD_UNW" in self.loss_flag:
+                    ph_diff[:,mic_pair_idx,:,: ] = torch.abs( raw_ph_diff )
+                elif "PD_COS_UNW" in self.loss_flag:
+                    #cosine
+                    #we need min ph_diff -> max cosine value -> min -1*cos
+                    ph_diff[:,mic_pair_idx,:,: ] = -1*torch.cos( raw_ph_diff )
+                elif "PD_COS_W" in self.loss_flag:
+                    ph_diff[:,mic_pair_idx,:,: ] = -1*lbl_mag[:,mic_pair[0],:,1:n_feats-1]*lbl_mag[:,mic_pair[1],:,1:n_feats-1]*torch.cos( raw_ph_diff )
+                else:
+                    #weighed abs ph diff
+                    ph_diff[:,mic_pair_idx,:,: ] = wt*torch.abs( raw_ph_diff )
+
+
+        if self.wgt_mech=="MASK":
+            irm_mask = self.get_mask(lbl_mag, noise_mag)
+        
+        ##Faster version of ph_diff computation
+        ph_diff_tmp = []
+        
+        for i in range(self.ph_diff_loop_range):
+            raw_ph_diff = (lbl_ph[:,[i],:,:]-lbl_ph[:,i+1:,:,:]) - (est_ph[:,[i],:,:]-est_ph[:,i+1:,:,:])
             if self.wgt_mech=="MASK":
-                irm_mask = self.get_mask(lbl_mag, noise_mag)   
-                wt = irm_mask[:,mic_pair[0],:,1:n_feats-1]*irm_mask[:,mic_pair[1],:,1:n_feats-1]
+                wt = (irm_mask[:,[i],:,1:n_feats-1]*irm_mask[:,i+1:,:,1:n_feats-1])
             else:
-                wt = lbl_mag[:,mic_pair[0],:,1:n_feats-1]*lbl_mag[:,mic_pair[1],:,1:n_feats-1]
+                wt = (lbl_mag[:,[i],:,1:n_feats-1]*lbl_mag[:,i+1:,:,1:n_feats-1])
+            ph_diff_tmp.append( wt*torch.abs( raw_ph_diff ))
 
-
-            if "PD_UNW" in self.loss_flag:
-                ph_diff[:,mic_pair_idx,:,: ] = torch.abs( raw_ph_diff )
-            elif "PD_COS_UNW" in self.loss_flag:
-                #cosine
-                #we need min ph_diff -> max cosine value -> min -1*cos
-                ph_diff[:,mic_pair_idx,:,: ] = -1*torch.cos( raw_ph_diff )
-            elif "PD_COS_W" in self.loss_flag:
-                ph_diff[:,mic_pair_idx,:,: ] = -1*lbl_mag[:,mic_pair[0],:,1:n_feats-1]*lbl_mag[:,mic_pair[1],:,1:n_feats-1]*torch.cos( raw_ph_diff )
-            else:
-                #weighed abs ph diff
-                ph_diff[:,mic_pair_idx,:,: ] = wt*torch.abs( raw_ph_diff )
-
+        ph_diff = torch.concat(ph_diff_tmp, dim=1)
+        
         #loss = loss_ri + loss_mag 
 
         #ph_diff = torch.abs(torch.cos(lbl_ph_1-lbl_ph_2) - torch.cos(est_ph_1-est_ph_2))
@@ -236,7 +259,7 @@ class MIMO_LossFunction(object):
         #lbl_i = lbl[:,1,:,:]*lbl[:,2,:,:] - lbl[:,0,:,:]*lbl[:,3,:,:]
         
         #ph_diff = torch.abs(lbl_r-est_r) + torch.abs(lbl_i-est_i)
-        loss_ph_diff = torch.sum(ph_diff) / float(batch_size * n_frames * n_feats) #TODO: num_mic_pairs
+        loss_ph_diff = torch.sum(ph_diff) / float(batch_size * self.num_mic_pairs * n_frames * n_feats) #TODO: num_mic_pairs
         #loss += 0.01*loss_ph_diff
 
         #playing with loss 

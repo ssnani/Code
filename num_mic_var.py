@@ -3,7 +3,7 @@ from dataset_v2 import MovingSourceDataset, NetworkInput
 from array_setup import get_array_set_up_from_config
 from masked_gcc_phat import gcc_phat, gcc_phat_v2, compute_vad, block_doa, blk_vad
 from metrics import eval_metrics_batch_v1
-from callbacks import DOAcallbacks
+from callbacks_parallel import DOAcallbacks_parallel
 
 import torch
 from torch import nn
@@ -23,7 +23,7 @@ from arg_parser import parser
 
 class DOA_MIMO_fwk_num_mics(pl.LightningModule):
 	
-	def __init__(self, array_setup, model_parse_info: list):
+	def __init__(self, array_setup, model_parse_info: list, loss_flags: list):
 		super().__init__()
 		self.array_setup = array_setup
 		
@@ -33,43 +33,64 @@ class DOA_MIMO_fwk_num_mics(pl.LightningModule):
 	def get_model_paths_input(self, parse_info: list [list]):
 		# assuming [[net_inp, net_out, model_path],....]
 		self.bidirectional = True
-		map_location = 'cuda:0'
-		self.models_2mic, self.models_4mic = [], []
+	
+		self.models_2mic, self.models_4mic, self.models_8mic = nn.ModuleList(), nn.ModuleList(), nn.ModuleList()
 		for idx, lst_val in enumerate(parse_info):
 			net_inp, net_out, model_path = lst_val[0], lst_val[1], lst_val[2]
-			_model = DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional,  net_inp=net_inp, net_out=net_out,
-						   train_dataset=None, val_dataset=None, loss_flag="MIMO")
-			_model.cuda()
+			loss_flag = model_path.split('/')[-4]
+			if "MIMO" not in loss_flag:
+				loss_flag = model_path.split('/')[-5]
+			_model = DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional, net_inp=net_inp, net_out=net_out,
+						   train_dataset=None, val_dataset=None, loss_flag=loss_flag)
+
 			if 4==net_inp:
 				self.models_2mic.append(_model)
-			else:
+			elif 8==net_inp:
 				self.models_4mic.append(_model)
-				
-		#nn.ModuleList(self.models_2mic)
-		#nn.ModuleList(self.models_4mic)
-		
+			elif 16==net_inp:
+				self.models_8mic.append(_model)
+			else:
+				print(f"Incorrect net_inp: {net_inp}")
 
-	def forward(self, input_batch, models):
+	def forward(self, input_batch, models, batch_idx):
 		mix_ri_spec, tgt_ri_spec, doa = input_batch
 		_est_ri_spec = []
-	
+		loss_info = []
 		for _model in models:
-			#_model.cuda()
-			est_ri_spec, _, _ = _model(input_batch)
-
-			_est_ri_spec.append(est_ri_spec)
+			est_ri_spec_dict = _model.test_step(input_batch, batch_idx)
+			_est_ri_spec.append(est_ri_spec_dict['est_ri_spec'])
+			loss_ri, loss_mag, loss_ph_diff = est_ri_spec_dict["loss_ri"], est_ri_spec_dict["loss_mag"], est_ri_spec_dict["loss_ph_diff"]
+			loss_info.append((loss_ri, loss_mag, loss_ph_diff))
 			
-		est_ri_spec = torch.concat(_est_ri_spec)
+		est_ri_spec_ = torch.concat(_est_ri_spec)
 
-		return est_ri_spec
+		return est_ri_spec_, loss_info
 
+	def forward_v2(self, input_batch, models, batch_idx):
+		mix_ri_spec, tgt_ri_spec, doa = input_batch
+		_est_ri_spec = []
+
+		for _model in models:
+			_model.model.eval()
+			with torch.no_grad():
+				est_ri_spec = _model.model(mix_ri_spec) #input_batch, batch_idx)
+				_est_ri_spec.append(est_ri_spec)
+			
+		est_ri_spec_ = torch.concat(_est_ri_spec)
+
+		return est_ri_spec_
+	
 	def test_step(self, test_batch, batch_idx):
 		mix_ri_spec, tgt_ri_spec, doa = test_batch
-		test_batch_2mic = (mix_ri_spec[:,2:6,:,:], tgt_ri_spec[:,2:6,:,:], doa)
 
-		est_ri_spec_4mic = self.forward(test_batch, self.models_4mic)
-		est_ri_spec_2mic = self.forward(test_batch_2mic, self.models_2mic)
-		return {"est_4mic_ri_spec" : est_ri_spec_4mic, "est_2mic_ri_spec" : est_ri_spec_2mic }
+		test_batch_2mic = (mix_ri_spec[:,6:10,:,:], tgt_ri_spec[:,6:10,:,:], doa)
+		test_batch_4mic = (mix_ri_spec[:,4:12,:,:], tgt_ri_spec[:,4:12,:,:], doa)
+
+		est_ri_spec_8mic, loss_8mic_info = self.forward(test_batch, self.models_8mic, batch_idx)
+		est_ri_spec_4mic, loss_4mic_info = self.forward(test_batch_4mic, self.models_4mic, batch_idx)
+		est_ri_spec_2mic, loss_2mic_info = self.forward(test_batch_2mic, self.models_2mic, batch_idx)
+
+		return {"est_8mic_ri_spec" : est_ri_spec_8mic, "est_4mic_ri_spec" : est_ri_spec_4mic, "est_2mic_ri_spec" : est_ri_spec_2mic, "loss_8mic_info": loss_8mic_info, "loss_4mic_info": loss_4mic_info, "loss_2mic_info": loss_2mic_info }
 	
 	def training_step(self, test_batch, batch_idx):
 		pass
@@ -161,7 +182,7 @@ def test_doa(args, models_info: list, loss_list):
 	"""
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=10,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -193,8 +214,8 @@ def test_doa(args, models_info: list, loss_list):
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
-						callbacks=[ DOAcallbacks(array_config=array_config, dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
-			       						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str)], #Losscallbacks(),
+						callbacks=[ DOAcallbacks_parallel(array_config=array_config, dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
+			       						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str, dbg_doa_log=False)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -211,7 +232,7 @@ def test_doa(args, models_info: list, loss_list):
 
 	print(msg)
 	
-	model = DOA_MIMO_fwk_num_mics(array_config['array_setup'], models_info)
+	model = DOA_MIMO_fwk_num_mics(array_config['array_setup'], models_info, loss_list)
 	trainer.test(model, dataloaders=test_loader)
 
 if __name__=="__main__":
@@ -231,11 +252,17 @@ if __name__=="__main__":
 	#if '4mic' in args.ckpt_dir:
 	#	loss_list.append("MIMO_RI_PD_REF")
 	models_info = []
-	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_dp_rir_t60_0', '/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_4mic_dp_rir_t60_0']
+	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_dp_rir_t60_0', '/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_4mic_dp_rir_t60_0', '/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_8mic_dp_rir_t60_0']
 	for ckpt_dir in ckpt_dirs:
-		net_inp, net_out = (8,8) if '4mic' in ckpt_dir else (4,4)
+		if '8mic' in ckpt_dir:
+			net_inp, net_out = (16,16) 
+		elif '4mic' in ckpt_dir:
+			net_inp, net_out = (8,8) 
+		else:
+			net_inp, net_out = (4,4)
+
 		for _loss_flag in loss_list:
-			ckpt_dir_1 = f'{ckpt_dir}/{_loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}' #
+			ckpt_dir_1 = f'{ckpt_dir}/{_loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}' #{noise_simulation}/
 			if os.path.exists(ckpt_dir_1):
 				for _file in os.listdir(ckpt_dir_1):
 					if _file.endswith(".ckpt") and _file[:5]=="epoch":

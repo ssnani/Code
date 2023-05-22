@@ -28,12 +28,13 @@ if GPU_RIR_IMPLEMENTATION:
 	import gpuRIR
 
 class NetworkInput(object):
-	def __init__(self, frame_len, frame_shift, ref_mic_idx=0):
+	def __init__(self, frame_len, frame_shift, ref_mic_idx=0, array_type=None):
 		self.frame_len = frame_len
 		self.frame_shift = frame_shift
 		self.kernel = (1,frame_len)
 		self.stride = (1,frame_shift)
 		self.mic_idx = ref_mic_idx   
+		self.array_type = array_type
 
 	def __call__(self, mix, tgt, DOA):
 		# Expecting shape mix, tgt: (2, *)
@@ -62,8 +63,14 @@ class NetworkInput(object):
 
 		#MISO 
 		if -1 != self.mic_idx:       #condition for specific channels
-			tgt_feat = tgt_feat[2*self.mic_idx :2*self.mic_idx  + 2]
-
+			if self.array_type=='linear':
+				tgt_feat = tgt_feat[2*self.mic_idx :2*self.mic_idx  + 2]
+			else:
+				#circular shift inputs trick
+				tgt_feat = tgt_feat[2*self.mic_idx :2*self.mic_idx  + 2]
+				#ip_format 
+				#ip_feat = torch.roll(ip_feat[1:, ], mic_idx)
+				
 		dbg_print(f"Transform inp: {ip_feat.shape} tgt: {tgt_feat.shape},  doa:{doa_frm.shape}")
 		return ip_feat, tgt_feat, doa_frm  
 
@@ -334,10 +341,13 @@ class MovingSourceDataset(Dataset):
 		
 		DOA = cart2sph(src_trajectory - array_pos)  #[:,1:3], 
 
+		
 		if self.transforms is not None:
 			for t in self.transforms:
 				mic_signals, dp_signals, doa = t(mic_signals, dp_signals, DOA)
 			return mic_signals, dp_signals, doa #, noise_reverb                 # noise_reverb is time domain signal: just for listening 
+		
+		
 
 		return mic_signals, dp_signals, DOA 
 
@@ -525,28 +535,32 @@ if __name__=="__main__":
 	snr = -5
 	t60 = 0.2
 	scenario = 'motion' #'static' #
-	dataset_file = f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}_reverb.txt' # 'dataset_file_10sec.txt'
+	dataset_file = '../test_dataset_file_real_rir_circular_motion.txt'#f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}_noisy_reverb.txt' # 'dataset_file_10sec.txt'
 
-	T60=0.4
-	SNR=5
+	T60=0.16
+	SNR=-5
 	dataset_dtype="stationary"
-	dataset_condition="reverb"
-	noise_simulation="diffuse"
+	dataset_condition="noisy_reverb"
+	noise_simulation="point_source"
 	diffuse_files_path= '/fs/scratch/PAS0774/Shanmukh/Databases/Timit/train_spk_signals'
 	array_config = {}
 
-	array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size'] = 'linear', 2, 8.0, [6,6,2.4]
+	array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size'] = 'linear', 8, 8.0, [6,6,2.4]
 
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 
-	train_dataset = MovingSourceDataset(dataset_file, array_config, size=1, transforms=None, T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
-										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) #[NetworkInput(320, 160, 0)]) #
+	array_config["real_rirs"], array_config["dist"] = True, 1
+
+	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[NetworkInput(320, 160, -1, array_config['array_type'])], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
+										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) # #
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
 	for _batch_idx, val in enumerate(train_loader):
 		print(f"mix_sig: {val[0].shape}, {val[0].dtype}, {val[0].device} \
 				tgt_sig: {val[1].shape}, {val[1].dtype}, {val[1].device} \
 				doa: {val[2].shape}, {val[2].dtype}, {val[2].device} \n")
+		doa = val[2]
+		print(torch.rad2deg(doa[:,:,-1])[0,0], torch.abs(torch.rad2deg(doa[:,:,-1])[0,0]))
 
 		#torchaudio.save(f'{logs_dir}{dataset_condition}_sig_{dataset_dtype}_{noise_simulation}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
 		#torchaudio.save(f'{logs_dir}{dataset_condition}_tgt_{dataset_dtype}_{noise_simulation}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)

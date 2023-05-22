@@ -214,11 +214,11 @@ def main(args):
 
 	
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
-	train_dataset = MovingSourceDataset(dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)], 
+	train_dataset = MovingSourceDataset(dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx, array_config['array_type'])], 
 										T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
 										noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=20)
 
-	dev_dataset = MovingSourceDataset(val_dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx)],
+	dev_dataset = MovingSourceDataset(val_dataset_file, array_config, transforms=[ NetworkInput(320, 160, ref_mic_idx, array_config['array_type'])],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, train_flag=args.train,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #, size=20
 
@@ -232,7 +232,8 @@ def main(args):
 	if dataset_condition=="reverb":
 		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
 	else:
-		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}_{loss_wgt_mech}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
+		loss_flag_str = f'{loss_flag}_{loss_wgt_mech}' if "PD" in loss_flag else f'{loss_flag}'
+		ckpt_dir = f'{args.ckpt_dir}/{loss_flag_str}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
 	msg_pre_trained = None
@@ -274,7 +275,7 @@ def main(args):
 	#trainer.tune(model)
 	#print(f'Max batch size fit on memory: {model.batch_size}\n')
 				
-	msg = f"Train Config: bidirectional: {bidirectional}, net_inp: {net_inp}, net_out: {net_out}, T: {T} , loss_flag: {loss_flag}, precision: {precision}, \n \
+	msg = f"Train Config: bidirectional: {bidirectional}, net_inp: {net_inp}, net_out: {net_out}, T: {T} , loss_flag: {loss_flag}, loss_wgt_mech: {loss_wgt_mech}, precision: {precision}, \n \
 		array_type: {array_config['array_type']}, num_mics: {array_config['num_mics']}, intermic_dist: {array_config['intermic_dist']}, room_size: {array_config['room_size']} \n, \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n \
 		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir}, exp_name: {exp_name} \n"
@@ -417,6 +418,7 @@ if __name__=="__main__":
 	#torch.autograd.set_detect_anomaly(True)
 	args = parser.parse_args()
 	if args.train:
+		print(f"{torch.cuda.is_available()}, {torch.cuda.device_count()}\n")
 		main(args)
 	else:
 		print("Testing\n")

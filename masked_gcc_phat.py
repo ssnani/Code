@@ -33,13 +33,13 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     #weightage
     if weighted:
-        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 1) # 0.3) # 
+        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 1) # 0.3) # 0.5
 
 
     angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(1, freq, dtype=torch.float32)
 
     angle_step = 1.0
-    theta_grid = 180.0
+    theta_grid = 360.0 if mic_center=="circular" else 180.0
     all_directions = torch.linspace(0,theta_grid,int(theta_grid/angle_step+1),dtype=torch.float32) #a set of potential directions
     dist = src_mic_dist
     c = 343
@@ -51,7 +51,7 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     for ind, direction in enumerate(all_directions):
         #ang = (direction - 90)/180.0*torch.pi  #radians
-        ang_doa  = (direction)/theta_grid*torch.pi  #radians
+        ang_doa = (direction)/180*torch.pi  #radians
         
         if is_euclidean_dist:
             src_pos = torch.tensor([torch.cos(ang_doa)*dist,torch.sin(ang_doa)*dist, 0.0],dtype=torch.float32) #+ mic_center
@@ -96,21 +96,19 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     return doa, vals, utt_doa, all_info_unweighted, all_info #utt_sum, delays
 
-
-
 def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs):
     #print(X.shape)
     num_mics, num_frames, num_freq = X.shape
     #mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
-
-    pair_acc_X_frm_vals = torch.zeros(181, num_frames).to(X.device)  #theta_grid [0,180]
+    theta_grid, mic_center = (361, "circular") if num_mics==7 else (181, "linear")
+    pair_acc_X_frm_vals = torch.zeros(theta_grid, num_frames).to(X.device)  #theta_grid [0,180]
 
     #centre mics (2mic)
     #  Even mics
     idx = num_mics//2
-    centre_mic_pair = (idx-1, idx)
+    centre_mic_pair = (idx-1, idx) if num_mics!=7 else (1,4)  #'linear' in array_type 
     #print(centre_mic_pair)
-    
+   
     for mic_pair in mic_pairs:
         X_pair = X[[mic_pair[0], mic_pair[1]],:,:]
         est_mask_pair = est_mask[[mic_pair[0], mic_pair[1]],:,:]
@@ -124,7 +122,6 @@ def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos,
             X_2mic_utt_doa = X_pair_utt_doa
             X_2mic_frm_vals = X_frm_vals
 
-
         pair_acc_X_frm_vals += X_frm_vals
 
     doa_idx = torch.argmax(pair_acc_X_frm_vals,dim=0)  #assuming doa_idx is doa
@@ -133,9 +130,112 @@ def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos,
     utt_doa_idx = torch.argmax(utt_sum)
 
     return doa_idx, pair_acc_X_frm_vals, utt_doa_idx, X_2mic_doa, X_2mic_utt_doa, X_2mic_frm_vals
-    
-    
 
+def np_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist):
+
+    (chan, frames, freq) = X.shape
+    X_ph = np.angle(X)
+    X_ph_diff = X_ph[0,:,1:] - X_ph[1,:,1:]
+
+    #weightage
+    if weighted:
+        est_mask_pq = np.power(est_mask[0,:,1:]*est_mask[1,:,1:], 1.0) # 0.3) # 
+
+
+    angular_freq = 2*np.pi*fs*1.0/nfft*np.arange(1, freq, dtype=np.float32)
+
+    angle_step = 1.0
+    theta_grid = 360.0 if mic_center=="circular" else 180.0
+    all_directions = np.linspace(0,theta_grid,int(theta_grid/angle_step+1),dtype=np.float32) #a set of potential directions
+    dist = src_mic_dist
+    c = 343
+
+    all_directions_val = [] 
+    delays = []
+    all_info = []
+    all_info_unweighted = []
+
+    for ind, direction in enumerate(all_directions):
+        #ang = (direction - 90)/180.0*torch.pi  #radians
+        ang_doa  = (direction)/180*np.pi  #radians
+        
+        if is_euclidean_dist:
+            src_pos = np.array([np.cos(ang_doa)*dist,np.sin(ang_doa)*dist, 0.0],dtype=np.float32) #+ mic_center
+            dist_pp = np.sqrt(np.sum((src_pos-local_mic_pos[0])**2))  ## TODO: pp
+            dist_qq = np.sqrt(np.sum((src_pos-local_mic_pos[1])**2))  ## TODO: qq
+            delay = (dist_qq-dist_pp)/c #,device=est_mask.device)#.type_as(est_mask)   
+
+        else:
+            # ASSUMPTION on unit circle
+            dist = 1
+            src_pos = np.array([np.cos(ang_doa)*dist,np.sin(ang_doa)*dist, 0.0],dtype=np.float32)
+            delay = np.dot((local_mic_pos[0]-local_mic_pos[1]), src_pos)/c
+
+            
+        delays.append(delay)
+        delay_vec = angular_freq*delay
+        #print(X_ph_diff.shape, delay_vec.shape)
+        gcc_phat_pq = np.cos( X_ph_diff - delay_vec)#.to(device=X_ph_diff.device)
+
+        all_info_unweighted.append(gcc_phat_pq)   #debug
+        if weighted:
+            mgcc_phat_pq = est_mask_pq*gcc_phat_pq
+            gcc_phat_pq = mgcc_phat_pq
+
+        all_info.append(gcc_phat_pq)              #debug
+        per_direction_val = np.sum(gcc_phat_pq, axis=1)
+
+        all_directions_val.append(per_direction_val)
+
+    vals = np.stack(all_directions_val, axis=0)
+
+    sig_vad_frms = sig_vad.shape[0]
+    vals = vals[:,:sig_vad_frms]*sig_vad   ##caluation for only vad frames
+
+    utt_sum = np.sum(vals,axis=1)
+    utt_doa_idx = np.argmax(utt_sum)
+    utt_doa = all_directions[utt_doa_idx]
+
+    doa_idx = np.argmax(vals,axis=0)
+    doa = all_directions[doa_idx]#.to(all_directions.device)]
+
+    return doa, vals, utt_doa, all_info_unweighted, all_info #utt_sum, delays
+
+def np_gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs):
+    #print(X.shape)
+    num_mics, num_frames, num_freq = X.shape
+    #mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
+    theta_grid, mic_center = (361, "circular") if num_mics==7 else (181, "linear")
+    pair_acc_X_frm_vals = np.zeros((theta_grid, num_frames)) #.to(X.device)  #theta_grid [0,180]
+
+    #centre mics (2mic)
+    #  Even mics
+    idx = num_mics//2
+    centre_mic_pair = (idx-1, idx) if num_mics!=7 else (1,4)  #'linear' in array_type 
+    #print(centre_mic_pair)
+   
+    for mic_pair in mic_pairs:
+        X_pair = X[[mic_pair[0], mic_pair[1]],:,:]
+        est_mask_pair = est_mask[[mic_pair[0], mic_pair[1]],:,:]
+        mic_pair_pos = local_mic_pos[[mic_pair[0], mic_pair[1]],:]
+
+        X_pair_doa, X_frm_vals, X_pair_utt_doa, _, _ = np_gcc_phat_loc_orient(X_pair, est_mask_pair, fs, nfft, mic_pair_pos, 
+															 mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist)
+        
+        if centre_mic_pair == mic_pair:
+            X_2mic_doa = X_pair_doa
+            X_2mic_utt_doa = X_pair_utt_doa
+            X_2mic_frm_vals = X_frm_vals
+
+        pair_acc_X_frm_vals += X_frm_vals
+
+    doa_idx = np.argmax(pair_acc_X_frm_vals,axis=0)  #assuming doa_idx is doa
+
+    utt_sum = np.sum(pair_acc_X_frm_vals,axis=1)
+    utt_doa_idx = np.argmax(utt_sum)
+
+    return doa_idx, pair_acc_X_frm_vals, utt_doa_idx, X_2mic_doa, X_2mic_utt_doa, X_2mic_frm_vals
+    
 #Vad 
 #input: numpy signal
 #output: torch signal

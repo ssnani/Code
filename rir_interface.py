@@ -18,7 +18,7 @@ class taslp_RIR_Interface():
     def __init__(self, array_type: str, num_mics:int, intermic_dist: float, room_size: list, train_flag: bool, sub_mics: int = -1):
         self.t60_list = [round(idx,1) for idx in np.arange(0.0,1.1,0.1) if idx!=0.1] 
         self.files_list = [f'HABET_SpacedOmni_{room_size[0]}x{room_size[1]}x{room_size[2]}_height{float(room_size[2])/2}_dist1_roomT60_{t60}.mat' for t60 in self.t60_list]
-        self.file_num_mics = 8 #if( num_mics > 2 and num_mics <= 8) else 2
+        self.file_num_mics = 8 if 'linear' in array_type else 7 #if( num_mics > 2 and num_mics <= 8) else 2
         self.scratch_dir = f'/fs/scratch/PAS0774/Shanmukh/Databases/RIRs/taslp_roomdata_360_resolution_1degree_{array_type}_array_{self.file_num_mics}_mic_{intermic_dist}cm/'
         self.rirs_list, self.dp_rirs_list = self.load_all_rirs(train_flag)
         self.req_mics = num_mics #sub_mics if sub_mics > 0 and sub_mics !=num_mics else num_mics
@@ -64,7 +64,6 @@ class taslp_RIR_Interface():
             idx = self.file_num_mics//2
             mic_pair_idx_offset = self.req_mics//2
             return self.rirs_list[t60_key][idx_list,idx-mic_pair_idx_offset:idx+mic_pair_idx_offset,:], self.rirs_list[0][idx_list,idx-mic_pair_idx_offset:idx+mic_pair_idx_offset,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
-
 
 class taslp_real_RIR_Interface():
     #(n_t60,n_angles,n_mics,rir_len)
@@ -165,14 +164,15 @@ class gannot_sim_RIR_Interface():
         return self.rirs_list[t60_key][idx_list,:,:], self.rirs_list[0][idx_list,:,:] #self.dp_rirs_list[t60_key][idx_list,:,:] #(nb_points,  2(n_mics), rir_len))
 
 if __name__=="__main__":
-    array_type, num_mics, intermic_dist,  room_size = 'linear', 2, 8.0,  ['6', '6', '2.4']
+    #array_type, num_mics, intermic_dist,  room_size = 'linear', 2, 8.0,  ['6', '6', '2.4']
+    array_type, num_mics, intermic_dist,  room_size = 'circular', 7, 4.25,  ['6', '6', '2.4']
     
     rir_interface = taslp_RIR_Interface(array_type, num_mics, intermic_dist, room_size, None)
-    rirs, dp_rirs = rir_interface.get_rirs(t60=0.2, idx_list=[4])
+    rirs, dp_rirs = rir_interface.get_rirs(t60=0.2, idx_list=[75])
     #rirs_0, dp_rirs_0 = rir_interface.get_rirs(t60=0.0, idx_list=[4])
 
-    tr_rir_interface = taslp_RIR_Interface(array_type, num_mics, intermic_dist, room_size, True)
-    tr_rirs, tr_dp_rirs = tr_rir_interface.get_rirs(t60=0.6, idx_list=[30, 360-30, 180-30, 180+30])
+    tr_rir_interface = taslp_RIR_Interface(array_type, 4, intermic_dist, room_size, None)
+    tr_rirs, tr_dp_rirs = tr_rir_interface.get_rirs(t60=0.2, idx_list=[75])#30, 360-30, 180-30, 180+30])
 
     #tr_rir_interface_4 = taslp_RIR_Interface(array_type, 4, intermic_dist, room_size, True)
     #tr_rirs_4, tr_dp_rirs_4 = tr_rir_interface_4.get_rirs(t60=0.6, idx_list=[10,360-10, 180-10])

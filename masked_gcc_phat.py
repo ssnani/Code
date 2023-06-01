@@ -455,3 +455,147 @@ def batch_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, 
     doa = all_directions[doa_idx]
 
     return doa, vals, utt_doa, utt_sum, delays
+
+
+#torch implementation
+def gcc_phat_loc_orient_masking(X, est_mask, tgt_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist):
+
+    (chan, frames, freq) = X.shape
+    X_ph = torch.angle(X)
+    X_ph_diff = X_ph[0,:,1:] - X_ph[1,:,1:]
+
+    #weightage
+    if weighted:
+        est_mask_pq = est_mask[0,:,1:]*est_mask[1,:,1:]
+        tgt_mask_pq = tgt_mask[0,:,1:]*tgt_mask[1,:,1:]
+
+
+    angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(1, freq, dtype=torch.float32)
+
+    angle_step = 1.0
+    theta_grid = 360.0 if mic_center=="circular" else 180.0
+    all_directions = torch.linspace(0,theta_grid,int(theta_grid/angle_step+1),dtype=torch.float32) #a set of potential directions
+    dist = src_mic_dist
+    c = 343
+
+    mix_all_directions_val, est_all_directions_val, tgt_all_directions_val = [], [], []
+    #delays = []
+    all_info = []
+    all_info_unweighted = []
+
+    for ind, direction in enumerate(all_directions):
+        #ang = (direction - 90)/180.0*torch.pi  #radians
+        ang_doa = (direction)/180*torch.pi  #radians
+        
+        if is_euclidean_dist:
+            src_pos = torch.tensor([torch.cos(ang_doa)*dist,torch.sin(ang_doa)*dist, 0.0],dtype=torch.float32) #+ mic_center
+            dist_pp = torch.sqrt(torch.sum((src_pos-local_mic_pos[0])**2))  ## TODO: pp
+            dist_qq = torch.sqrt(torch.sum((src_pos-local_mic_pos[1])**2))  ## TODO: qq
+            delay = (dist_qq-dist_pp)/c #,device=est_mask.device)#.type_as(est_mask)   
+
+        else:
+            # ASSUMPTION on unit circle
+            dist = 1
+            src_pos = torch.tensor([torch.cos(ang_doa)*dist,torch.sin(ang_doa)*dist, 0.0],dtype=torch.float32) 
+            delay = np.dot((local_mic_pos[0]-local_mic_pos[1]), src_pos)/c
+
+            
+        #delays.append(delay)
+        delay_vec = angular_freq*delay
+        #print(X_ph_diff.shape, delay_vec.shape)
+        gcc_phat_pq = torch.cos( X_ph_diff - delay_vec.to(device=X_ph_diff.device))
+
+        if weighted:
+            est_mgcc_phat_pq = est_mask_pq*gcc_phat_pq
+            tgt_mgcc_phat_pq = tgt_mask_pq*gcc_phat_pq
+
+        mix_per_direction_val = torch.sum(gcc_phat_pq, dim=1)
+        tgt_per_direction_val = torch.sum(tgt_mgcc_phat_pq, dim=1)
+        est_per_direction_val = torch.sum(est_mgcc_phat_pq, dim=1)
+             
+        mix_all_directions_val.append(mix_per_direction_val)
+        tgt_all_directions_val.append(tgt_per_direction_val)
+        est_all_directions_val.append(est_per_direction_val)
+
+    
+    mix_vals = torch.stack(mix_all_directions_val, dim=0)
+    tgt_vals = torch.stack(tgt_all_directions_val, dim=0)
+    est_vals = torch.stack(est_all_directions_val, dim=0)
+
+    sig_vad_frms = sig_vad.shape[0]
+    est_vals = est_vals[:,:sig_vad_frms]*sig_vad   ##caluation for only vad frames
+    tgt_vals = tgt_vals[:,:sig_vad_frms]*sig_vad   ##caluation for only vad frames
+    mix_vals = mix_vals[:,:sig_vad_frms]*sig_vad   ##caluation for only vad frames
+
+    utt_sum = torch.sum(est_vals,dim=1)
+    utt_doa_idx = torch.argmax(utt_sum)
+    est_utt_doa = all_directions[utt_doa_idx]
+
+    utt_sum = torch.sum(tgt_vals,dim=1)
+    utt_doa_idx = torch.argmax(utt_sum)
+    tgt_utt_doa = all_directions[utt_doa_idx]
+
+    mix_utt_sum = torch.sum(mix_vals,dim=1)
+    mix_utt_doa_idx = torch.argmax(mix_utt_sum)
+    mix_utt_doa = all_directions[mix_utt_doa_idx]
+
+    est_doa_idx = torch.argmax(est_vals,dim=0)
+    est_doa = all_directions[est_doa_idx.to(all_directions.device)]
+
+    tgt_doa_idx = torch.argmax(tgt_vals,dim=0)
+    tgt_doa = all_directions[tgt_doa_idx.to(all_directions.device)]
+
+    mix_doa_idx = torch.argmax(mix_vals,dim=0)
+    mix_doa = all_directions[mix_doa_idx.to(all_directions.device)]
+
+    return est_doa, tgt_doa, mix_doa, est_utt_doa, tgt_utt_doa, mix_utt_doa, est_vals, tgt_vals, mix_vals
+
+
+def gcc_phat_all_pairs_masking(X: "[num_mics, T, F]", est_mask, tgt_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs):
+    #print(X.shape)
+    num_mics, num_frames, num_freq = X.shape
+    #mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
+    theta_grid, mic_center = (361, "circular") if num_mics==7 else (181, "linear")
+
+    est_pair_acc_X_frm_vals = torch.zeros(theta_grid, num_frames).to(X.device)  #theta_grid [0,180]
+    tgt_pair_acc_X_frm_vals = torch.zeros(theta_grid, num_frames).to(X.device)  #theta_grid [0,180]
+    mix_pair_acc_X_frm_vals = torch.zeros(theta_grid, num_frames).to(X.device)  #theta_grid [0,180]
+
+    #centre mics (2mic)
+    #  Even mics
+    idx = num_mics//2
+    centre_mic_pair = (idx-1, idx) if num_mics!=7 else (1,4)  #'linear' in array_type 
+    #print(centre_mic_pair)
+   
+    for mic_pair in mic_pairs:
+        X_pair = X[[mic_pair[0], mic_pair[1]],:,:]
+        est_mask_pair = est_mask[[mic_pair[0], mic_pair[1]],:,:]
+        tgt_mask_pair = tgt_mask[[mic_pair[0], mic_pair[1]],:,:]
+        mic_pair_pos = local_mic_pos[[mic_pair[0], mic_pair[1]],:]
+
+        est_pair_doa, tgt_pair_doa, mix_pair_doa, est_pair_utt_doa, tgt_pair_utt_doa, mix_pair_utt_doa, est_frm_vals, tgt_frm_vals, mix_frm_vals = gcc_phat_loc_orient_masking(X_pair, est_mask_pair, tgt_mask_pair, fs, nfft, mic_pair_pos, 
+															 mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist)
+        
+        if centre_mic_pair == mic_pair:
+            est_2mic_doa, est_2mic_utt_doa, est_2mic_frm_vals = est_pair_doa, est_pair_utt_doa, est_frm_vals
+            tgt_2mic_doa, tgt_2mic_utt_doa, tgt_2mic_frm_vals = tgt_pair_doa, tgt_pair_utt_doa, tgt_frm_vals
+            mix_2mic_doa, mix_2mic_utt_doa, mix_2mic_frm_vals = mix_pair_doa, mix_pair_utt_doa, mix_frm_vals
+
+        est_pair_acc_X_frm_vals += est_frm_vals
+        tgt_pair_acc_X_frm_vals += tgt_frm_vals
+        mix_pair_acc_X_frm_vals += mix_frm_vals
+
+    est_doa_idx = torch.argmax(est_pair_acc_X_frm_vals,dim=0)  #assuming doa_idx is doa
+    tgt_doa_idx = torch.argmax(tgt_pair_acc_X_frm_vals,dim=0)  #assuming doa_idx is doa
+    mix_doa_idx = torch.argmax(mix_pair_acc_X_frm_vals,dim=0)  #assuming doa_idx is doa
+
+    est_utt_sum = torch.sum(est_pair_acc_X_frm_vals,dim=1)
+    est_utt_doa_idx = torch.argmax(est_utt_sum)
+
+    tgt_utt_sum = torch.sum(tgt_pair_acc_X_frm_vals,dim=1)
+    tgt_utt_doa_idx = torch.argmax(tgt_utt_sum)
+
+    mix_utt_sum = torch.sum(mix_pair_acc_X_frm_vals,dim=1)
+    mix_utt_doa_idx = torch.argmax(mix_utt_sum)
+
+    return est_doa_idx, tgt_doa_idx, mix_doa_idx, est_utt_doa_idx, tgt_utt_doa_idx, mix_utt_doa_idx, est_2mic_doa, tgt_2mic_doa, mix_2mic_doa, est_2mic_utt_doa, tgt_2mic_utt_doa, mix_2mic_utt_doa

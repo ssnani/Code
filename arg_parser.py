@@ -56,6 +56,10 @@ parser.add_argument('--loss_wgt_mech',
                     type=str,
                     default='',
                     help='MASK or MAG')
+parser.add_argument('--acc_loss_mech',
+                    type=str,
+                    default='',
+                    help='AVG or SUM')
 
 # Dataset Files
 parser.add_argument('--dataset_file',

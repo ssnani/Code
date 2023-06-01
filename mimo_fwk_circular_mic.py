@@ -3,7 +3,7 @@ from dataset_v2 import MovingSourceDataset, NetworkInput
 from array_setup import get_array_set_up_from_config
 from masked_gcc_phat import gcc_phat, gcc_phat_v2, compute_vad, block_doa, blk_vad
 from metrics import eval_metrics_batch_v1
-from callbacks_parallel import DOAcallbacks_parallel
+from callbacks_parallel_circular import DOAcallbacks_parallel_circular
 
 import torch
 from torch import nn
@@ -21,7 +21,7 @@ import torchaudio
 import os
 from arg_parser import parser
 
-class DOA_MIMO_fwk_num_mics(pl.LightningModule):
+class DOA_MIMO_fwk_circular(pl.LightningModule):
 	
 	def __init__(self, array_setup, model_parse_info: list, loss_flags: list):
 		super().__init__()
@@ -34,7 +34,7 @@ class DOA_MIMO_fwk_num_mics(pl.LightningModule):
 		# assuming [[net_inp, net_out, model_path],....]
 		self.bidirectional = True
 	
-		self.models_2mic, self.models_4mic, self.models_8mic = nn.ModuleList(), nn.ModuleList(), nn.ModuleList()
+		self.models = nn.ModuleList()
 		for idx, lst_val in enumerate(parse_info):
 			net_inp, net_out, model_path, loss_wgt_mech = lst_val[0], lst_val[1], lst_val[2], lst_val[3]
 			
@@ -45,14 +45,9 @@ class DOA_MIMO_fwk_num_mics(pl.LightningModule):
 			_model = DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional, net_inp=net_inp, net_out=net_out,
 						   train_dataset=None, val_dataset=None, loss_flag=loss_flag, wgt_mech=loss_wgt_mech)
 
-			if 4==net_inp:
-				self.models_2mic.append(_model)
-			elif 8==net_inp:
-				self.models_4mic.append(_model)
-			elif 16==net_inp:
-				self.models_8mic.append(_model)
-			else:
-				print(f"Incorrect net_inp: {net_inp}")
+
+			self.models.append(_model)
+
 
 	def forward(self, input_batch, models, batch_idx):
 		mix_ri_spec, tgt_ri_spec, doa = input_batch
@@ -84,18 +79,8 @@ class DOA_MIMO_fwk_num_mics(pl.LightningModule):
 	
 	def test_step(self, test_batch, batch_idx):
 		mix_ri_spec, tgt_ri_spec, doa = test_batch
-
-		test_batch_2mic = (mix_ri_spec[:,6:10,:,:], tgt_ri_spec[:,6:10,:,:], doa)
-		test_batch_4mic = (mix_ri_spec[:,4:12,:,:], tgt_ri_spec[:,4:12,:,:], doa)
-
-		est_ri_spec_8mic, loss_8mic_info = self.forward(test_batch, self.models_8mic, batch_idx)
-		est_ri_spec_4mic, loss_4mic_info = self.forward(test_batch_4mic, self.models_4mic, batch_idx)
-		if len(self.models_2mic)>0:
-			est_ri_spec_2mic, loss_2mic_info = self.forward(test_batch_2mic, self.models_2mic, batch_idx)
-		else:
-			est_ri_spec_2mic, loss_2mic_info = None, None
-
-		return {"est_8mic_ri_spec" : est_ri_spec_8mic, "est_4mic_ri_spec" : est_ri_spec_4mic, "est_2mic_ri_spec" : est_ri_spec_2mic, "loss_8mic_info": loss_8mic_info, "loss_4mic_info": loss_4mic_info, "loss_2mic_info": loss_2mic_info }
+		est_ri_spec, loss_7mic_info = self.forward(test_batch, self.models, batch_idx)
+		return {"est_ri_spec" : est_ri_spec, "loss_7mic_info": loss_7mic_info }
 	
 	def training_step(self, test_batch, batch_idx):
 		pass
@@ -187,7 +172,7 @@ def test_doa(args, models_info: list, loss_list):
 	"""
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=10,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -218,8 +203,8 @@ def test_doa(args, models_info: list, loss_list):
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
-						callbacks=[ DOAcallbacks_parallel(array_config=array_config, dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
-			       						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str, dbg_doa_log=False)], #Losscallbacks(),
+						callbacks=[ DOAcallbacks_parallel_circular(array_config=array_config, dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
+				   						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str, dbg_doa_log=True)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -236,7 +221,7 @@ def test_doa(args, models_info: list, loss_list):
 
 	print(msg)
 	
-	model = DOA_MIMO_fwk_num_mics(array_config['array_setup'], models_info, loss_list)
+	model = DOA_MIMO_fwk_circular(array_config['array_setup'], models_info, loss_list)
 	trainer.test(model, dataloaders=test_loader)
 
 if __name__=="__main__":
@@ -257,23 +242,12 @@ if __name__=="__main__":
 	#if '4mic' in args.ckpt_dir:
 	#	loss_list.append("MIMO_RI_PD_REF")
 	models_info = []
-	ckpt_dirs = [ '/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_4mic_dp_rir_t60_0', '/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_8mic_dp_rir_t60_0'] #'/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_8cm_dp_rir_t60_0',
+	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Circular_array_4.25cm_7mic_dp_rir_t60_0']
 	for ckpt_dir in ckpt_dirs:
 		for _loss_flag in loss_list:
-			if '8mic' in ckpt_dir:
-				net_inp, net_out = (16,16) 		
+			if '7mic' in ckpt_dir:
+				net_inp, net_out = (14,14) 		
 				loss_flag_str = f'{_loss_flag}_{loss_wgt_mech}' if ("PD" in _loss_flag) and ("noisy" in dataset_condition) else f'{_loss_flag}'
-			elif '4mic' in ckpt_dir:
-				net_inp, net_out = (8,8) 
-				loss_flag_str = _loss_flag
-			else:
-				net_inp, net_out = (4,4)
-				if dataset_condition=="noisy":
-					loss_flag_str = f'{_loss_flag}_{loss_wgt_mech}' if "PD" in _loss_flag else f'{_loss_flag}'
-				else:
-					loss_flag_str = _loss_flag
-					if _loss_flag == "MIMO_RI_PD_REF":
-						loss_flag_str = "MIMO_RI_PD_REF_no_need"
 		
 			if "noisy" in dataset_condition:
 				ckpt_dir_1 = f'{ckpt_dir}/{loss_flag_str}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'

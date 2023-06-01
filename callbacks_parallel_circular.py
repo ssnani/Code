@@ -112,6 +112,8 @@ class DOAcallbacks_parallel_circular(Callback):
 					diff = np.abs(est_blk_val[idx] - np.abs(tgt_blk_val[idx]))
 				else:
 					diff = np.abs(est_blk_val[idx] - tgt_blk_val[idx]) 
+					if 360 - diff <=diff:
+						diff = 360 - diff
 
 				if ( diff <= tol):
 					acc += 1.0
@@ -1063,7 +1065,7 @@ class DOAcallbacks_parallel_circular(Callback):
 
 		self._parallel_exec_loss_functions(batch_idx, tgt_sig.cpu().numpy(), mix_spec_cmplx.cpu().numpy(), self.local_mic_pos.cpu().numpy(), tgt_sig_vad.cpu().numpy(), self.mic_pairs, \
 									ref_f_doa.cpu().numpy(), ref_2mic_f_doa.cpu().numpy(), doa_degrees.cpu().numpy(), doa_degrees_2mic.cpu().numpy(), \
-									 est_ri_spec_lossfns.cpu().numpy(), est_sig_lossfns.cpu().numpy(), result_est_dict)
+									 est_ri_spec_lossfns.cpu().numpy(), est_sig_lossfns.cpu().numpy(), result_est_dict, log_dir)
 		
 	
 		"""
@@ -1386,7 +1388,7 @@ class DOAcallbacks_parallel_circular(Callback):
 		) -> None:
 
 		result_est_dict = self._batch_metrics_num_mics_parallel(batch, outputs, batch_idx) #v3
-		self.logging_funciton(result_est_dict)
+		#self.logging_funciton(result_est_dict)
 
 
 		"""

@@ -206,6 +206,11 @@ class MIMO_Net(nn.Module):
         self.net_inp = net_inp
         self.net_out = net_out
 
+        if net_inp==4:
+            self.OLD_IMPLEMENTATION = True
+        else:
+            self.OLD_IMPLEMENTATION = False
+
         self.conv1 = DenseConv2d(self.net_inp, 16, (1,4), padding=(0,1), stride=(1,2), grate=8)
         self.conv2 = DenseConv2d(16, 32, (1,4), padding=(0,1), stride=(1,2), grate=8)
         self.conv3 = DenseConv2d(32, 64, (1,4), padding=(0,1), stride=(1,2), grate=8)
@@ -220,13 +225,13 @@ class MIMO_Net(nn.Module):
         self.conv2_t = DenseConvTranspose2d(64+32, 32, (1,4), padding=(0,1), stride=(1,2), grate=8)
         self.conv1_t = DenseConvTranspose2d(32+16, 16, (1,4), padding=(0,1), stride=(1,2), grate=8)
         
-        if OLD_IMPLEMENTATION:
+        if self.OLD_IMPLEMENTATION:
             self.fc1 = nn.Linear(160*8, 161)
             self.fc2 = nn.Linear(160*8, 161)
 
-
-            self.fc3 = nn.Linear(160*8, 161)
-            self.fc4 = nn.Linear(160*8, 161)
+            if self.net_out==4:
+                self.fc3 = nn.Linear(160*8, 161)
+                self.fc4 = nn.Linear(160*8, 161)
         else:
             self.linear_layers = nn.ModuleList([ nn.Linear(160*8, 161) for _ in range(0,self.net_out) ])
 
@@ -259,16 +264,16 @@ class MIMO_Net(nn.Module):
         out1 = d1[:,:8].transpose(1,2).contiguous().view(d1.size(0), d1.size(2), -1).contiguous()
         out2 = d1[:,8:].transpose(1,2).contiguous().view(d1.size(0), d1.size(2), -1).contiguous()
         #breakpoint()
-        if OLD_IMPLEMENTATION:
+        if self.OLD_IMPLEMENTATION:
             out_r1 = self.fc1(out1)
             out_i1 = self.fc2(out2)
 
-            #out_0 = torch.stack([out_r1, out_i1], dim=1)
+            out = torch.stack([out_r1, out_i1], dim=1)
+            if self.net_out==4:
+                out_r2 = self.fc3(out1)
+                out_i2 = self.fc4(out2)
 
-            out_r2 = self.fc3(out1)
-            out_i2 = self.fc4(out2)
-
-            out = torch.stack([out_r1, out_i1, out_r2, out_i2], dim=1)
+                out = torch.stack([out_r1, out_i1, out_r2, out_i2], dim=1)
         else:
             out = torch.stack( [ self.linear_layers[i](out1) if 0==i%2 else self.linear_layers[i](out2) for i in range(0,self.net_out) ], dim=1)
 
@@ -287,9 +292,7 @@ def test_model(bidirectional, num_inp, num_out):
     end = time.time() - start 
     print('Time for {} -> {} is {} sec'.format(feat.shape, est.shape, end))
 
-
-
 if __name__=="__main__":
     #import sys
     #bidirectional = sys.argv[1] == "True"
-    test_model(bidirectional=True, num_inp=4, num_out=2)
+    test_model(bidirectional=True, num_inp=16, num_out=16)

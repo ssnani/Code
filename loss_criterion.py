@@ -1,7 +1,27 @@
 import torch
+from torch import nn
 
 OLD_IMPLEMENTATION = False
 
+class MSELoss(nn.Module):
+    def __init__(self):
+        super(MSELoss, self).__init__()
+
+    def forward(self, outputs, labels, nframes):
+        loss_mask = self.lossMask(labels, nframes)
+        loss = ((outputs - labels) * loss_mask)**2
+        loss = torch.sum(loss)
+        loss_mask = torch.sum(loss_mask)
+        #breakpoint()
+        loss = loss/loss_mask
+        return loss#, loss_mask
+
+    def lossMask(self, labels, nframes):
+        loss_mask = torch.zeros_like(labels).requires_grad_(False)
+        for j, seq_len in enumerate(nframes):
+            loss_mask.data[j,0:seq_len,:] += 1.0
+        return loss_mask
+    
 class LossFunction(object):
     def __init__(self, loss_flag):
         self.eps = torch.finfo(torch.float32).eps
@@ -127,14 +147,16 @@ class MIMO_LossFunction_v1(object):
 
 
 class MIMO_LossFunction(object):
-    def __init__(self, loss_flag, wgt_mech, net_out):
+    def __init__(self, loss_flag, wgt_mech, acc_loss_mech, net_out):
         self.eps = torch.finfo(torch.float32).eps
         self.loss_flag = loss_flag
         self.wgt_mech = wgt_mech
+        self.acc_loss_mech = acc_loss_mech
         
+        self.num_mics = net_out//2
         self.lam = self.get_lam(self.loss_flag, self.wgt_mech)
 
-        self.num_mics = net_out//2
+        
         self.mic_pairs, self.num_mic_pairs = self.get_info_mic_pairs(self.num_mics)
         self.ph_diff_loop_range = 1 if "PD_REF" in self.loss_flag else (self.num_mics - 1)
 
@@ -143,8 +165,11 @@ class MIMO_LossFunction(object):
         if wgt_mech=="MASK" or "UNW" in loss_flag:
             lam = 1
         else:
-            lam = 0.01
-        
+            if self.num_mics==8 and self.acc_loss_mech=="SUM":
+                lam = 1e-3
+            else:
+                lam = 0.01
+        print(f"lam: {lam}")
         return lam
   
     def get_info_mic_pairs(self, num_mics):
@@ -199,8 +224,11 @@ class MIMO_LossFunction(object):
         ri = torch.abs(est - lbl)
         mag = torch.abs(est_mag - lbl_mag) # + torch.abs(est_mag_2 - lbl_mag_2)
         
-        loss_ri = torch.sum(ri) / float(batch_size* self.num_mics * n_frames * n_feats)
-        loss_mag = torch.sum(mag) / float(batch_size* self.num_mics * n_frames * n_feats)
+        #breakpoint()
+        den_ri_mag = float(batch_size* self.num_mics * n_frames * n_feats)  if self.acc_loss_mech=="AVG" else float(batch_size * n_frames * n_feats)
+
+        loss_ri = torch.sum(ri) / den_ri_mag #float(batch_size* self.num_mics * n_frames * n_feats)
+        loss_mag = torch.sum(mag) / den_ri_mag #float(batch_size* self.num_mics * n_frames * n_feats)
 
         if OLD_IMPLEMENTATION:
             ph_diff = torch.zeros(batch_size, self.num_mic_pairs, n_frames, n_feats-2)
@@ -259,7 +287,8 @@ class MIMO_LossFunction(object):
         #lbl_i = lbl[:,1,:,:]*lbl[:,2,:,:] - lbl[:,0,:,:]*lbl[:,3,:,:]
         
         #ph_diff = torch.abs(lbl_r-est_r) + torch.abs(lbl_i-est_i)
-        loss_ph_diff = torch.sum(ph_diff) / float(batch_size * self.num_mic_pairs * n_frames * n_feats) #TODO: num_mic_pairs
+        den_ph = float(batch_size* self.num_mic_pairs * n_frames * n_feats)  if self.acc_loss_mech=="AVG" else float(batch_size * n_frames * n_feats)
+        loss_ph_diff = torch.sum(ph_diff) / den_ph #float(batch_size * self.num_mic_pairs * n_frames * n_feats) #TODO: num_mic_pairs
         #loss += 0.01*loss_ph_diff
 
         #playing with loss 

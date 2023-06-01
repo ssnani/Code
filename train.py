@@ -20,13 +20,13 @@ from debug import dbg_print
 from callbacks import Losscallbacks, DOAcallbacks, GradNormCallback
 
 class DCCRN_model(pl.LightningModule):
-	def __init__(self, bidirectional: bool, net_inp: int, net_out: int, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, loss_flag=None, wgt_mech=None):
+	def __init__(self, bidirectional: bool, net_inp: int, net_out: int, train_dataset: Dataset, val_dataset: Dataset, batch_size=32, num_workers=4, loss_flag=None, wgt_mech=None, acc_loss_mech=None):
 		super().__init__()
 		pl.seed_everything(77)
 
 		self.model = MIMO_Net(bidirectional, net_inp, net_out) #MIMO_Net(bidirectional) if "MIMO" in loss_flag else Net(bidirectional) # in 
 		
-		self.loss = MIMO_LossFunction(loss_flag, wgt_mech, net_out) if "MIMO" in loss_flag else LossFunction(loss_flag)
+		self.loss = MIMO_LossFunction(loss_flag, wgt_mech, acc_loss_mech, net_out) if "MIMO" in loss_flag else LossFunction(loss_flag)
 
 		self.batch_size = batch_size
 		self.num_workers = num_workers
@@ -183,6 +183,8 @@ def main(args):
 				array_config['room_size'] = [lst[1], lst[2], lst[3]]
 			elif lst[0]=="loss":
 				loss_flag = lst[1]
+			elif lst[0]=="acc_loss_mech":
+				acc_loss_mech = lst[1] 
 			else:
 				continue
 	
@@ -202,6 +204,7 @@ def main(args):
 	noise_simulation = args.noise_simulation
 	diffuse_files_path = args.diffuse_files_path
 	loss_wgt_mech = args.loss_wgt_mech
+	#acc_loss_mech = args.acc_loss_mech
 	#loss_flag
 	net_inp = array_config["num_mics"]*2
 
@@ -225,14 +228,14 @@ def main(args):
 
 	# model
 	bidirectional = args.bidirectional
-	model = DCCRN_model(bidirectional, net_inp, net_out, train_dataset, dev_dataset, args.batch_size, args.num_workers, loss_flag, loss_wgt_mech)
+	model = DCCRN_model(bidirectional, net_inp, net_out, train_dataset, dev_dataset, args.batch_size, args.num_workers, loss_flag, loss_wgt_mech, acc_loss_mech)
 
 
 	## exp path directories
 	if dataset_condition=="reverb":
 		ckpt_dir = f'{args.ckpt_dir}/{loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}'
 	else:
-		loss_flag_str = f'{loss_flag}_{loss_wgt_mech}' if "PD" in loss_flag else f'{loss_flag}'
+		loss_flag_str = f'{loss_flag}_{loss_wgt_mech}_{acc_loss_mech}' if "PD" in loss_flag else f'{loss_flag}'
 		ckpt_dir = f'{args.ckpt_dir}/{loss_flag_str}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 	exp_name = f'{args.exp_name}' #t60_{T60}_snr_{SNR}dB
 
@@ -275,7 +278,7 @@ def main(args):
 	#trainer.tune(model)
 	#print(f'Max batch size fit on memory: {model.batch_size}\n')
 				
-	msg = f"Train Config: bidirectional: {bidirectional}, net_inp: {net_inp}, net_out: {net_out}, T: {T} , loss_flag: {loss_flag}, loss_wgt_mech: {loss_wgt_mech}, precision: {precision}, \n \
+	msg = f"Train Config: bidirectional: {bidirectional}, net_inp: {net_inp}, net_out: {net_out}, T: {T} , loss_flag: {loss_flag}, loss_wgt_mech: {loss_wgt_mech}, acc_loss_mech: {acc_loss_mech}, precision: {precision}, \n \
 		array_type: {array_config['array_type']}, num_mics: {array_config['num_mics']}, intermic_dist: {array_config['intermic_dist']}, room_size: {array_config['room_size']} \n, \
 		dataset_file: {dataset_file}, t60: {T60}, snr: {SNR}, dataset_dtype: {dataset_dtype}, dataset_condition: {dataset_condition}, \n \
 		ref_mic_idx: {ref_mic_idx}, batch_size: {args.batch_size}, ckpt_dir: {ckpt_dir}, exp_name: {exp_name} \n"

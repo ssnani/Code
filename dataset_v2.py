@@ -344,8 +344,8 @@ class MovingSourceDataset(Dataset):
 		
 		if self.transforms is not None:
 			for t in self.transforms:
-				mic_signals, dp_signals, doa = t(mic_signals, dp_signals, DOA)
-			return mic_signals, dp_signals, doa #, noise_reverb                 # noise_reverb is time domain signal: just for listening 
+				mic_signals, dp_signals, doa = t(mic_signals, dp_signals, DOA) #, seq_len, doa, mix_cs
+			return mic_signals, dp_signals, doa # seq_len, doa, mix_cs #, noise_reverb                 # noise_reverb is time domain signal: just for listening 
 		
 		
 
@@ -530,18 +530,18 @@ class MovingSourceDataset(Dataset):
 		return reverb_sig, src_trajectory
 
 if __name__=="__main__":
-
+	from ZQ_dataset import ZQ_NetworkInput
 	logs_dir = '../signals/'
 	snr = -5
 	t60 = 0.2
 	scenario = 'motion' #'static' #
 	dataset_file = '../test_dataset_file_real_rir_circular_motion.txt'#f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}_noisy_reverb.txt' # 'dataset_file_10sec.txt'
 
-	T60=0.16
+	T60=0.2
 	SNR=-5
 	dataset_dtype="stationary"
 	dataset_condition="noisy_reverb"
-	noise_simulation="point_source"
+	noise_simulation="diffuse"
 	diffuse_files_path= '/fs/scratch/PAS0774/Shanmukh/Databases/Timit/train_spk_signals'
 	array_config = {}
 
@@ -549,9 +549,9 @@ if __name__=="__main__":
 
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 
-	array_config["real_rirs"], array_config["dist"] = True, 1
+	#array_config["real_rirs"], array_config["dist"] = True, 1
 
-	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[NetworkInput(320, 160, -1, array_config['array_type'])], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
+	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[ZQ_NetworkInput(320, 160, -1, array_config['array_type'])], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
 										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) # #
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
@@ -560,8 +560,8 @@ if __name__=="__main__":
 				tgt_sig: {val[1].shape}, {val[1].dtype}, {val[1].device} \
 				doa: {val[2].shape}, {val[2].dtype}, {val[2].device} \n")
 		doa = val[2]
-		print(torch.rad2deg(doa[:,:,-1])[0,0], torch.abs(torch.rad2deg(doa[:,:,-1])[0,0]))
-
+		#print(torch.rad2deg(doa[:,:,-1])[0,0], torch.abs(torch.rad2deg(doa[:,:,-1])[0,0]))
+		breakpoint()
 		#torchaudio.save(f'{logs_dir}{dataset_condition}_sig_{dataset_dtype}_{noise_simulation}_{_batch_idx}.wav', val[0][0].to(torch.float32), 16000)
 		#torchaudio.save(f'{logs_dir}{dataset_condition}_tgt_{dataset_dtype}_{noise_simulation}_{_batch_idx}.wav', val[1][0].to(torch.float32), 16000)
 

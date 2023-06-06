@@ -18,6 +18,7 @@ from rir_interface import taslp_RIR_Interface, taslp_real_RIR_Interface
 from array_setup import get_array_set_up_from_config
 from locata_utils import cart2sph
 from scipy.signal import fftconvolve
+from masked_gcc_phat import compute_vad
 
 
 GPU_RIR_IMPLEMENTATION = False
@@ -74,6 +75,72 @@ class NetworkInput(object):
 		dbg_print(f"Transform inp: {ip_feat.shape} tgt: {tgt_feat.shape},  doa:{doa_frm.shape}")
 		return ip_feat, tgt_feat, doa_frm  
 
+class Multi_task_NetworkInput(object):
+	def __init__(self, frame_len, frame_shift, ref_mic_idx=0, array_type=None, num_doa_classes=None):
+		self.frame_len = frame_len
+		self.frame_shift = frame_shift
+		self.kernel = (1,frame_len)
+		self.stride = (1,frame_shift)
+		self.mic_idx = ref_mic_idx   
+		self.array_type = array_type
+		self.num_doa_classes = num_doa_classes
+
+	def __call__(self, mix, tgt, DOA):
+		# Expecting shape mix, tgt: (2, *)
+		# acoustic_scene has numpy objects doa (samples, 2)
+		# Output shape: (2*2(r,i), T, f), (T,2)
+		dbg_print(f"input : mix: {mix.shape} tgt: {tgt.shape},  doa:{DOA.shape}")
+		ip_real_img = torch.stft(mix, self.frame_len, self.frame_shift, self.frame_len, torch.hamming_window(self.frame_len), center=False, return_complex=False) #(2, num_freq, T, 2(r,i))
+		tgt_real_img = torch.stft(tgt, self.frame_len, self.frame_shift, self.frame_len, torch.hamming_window(self.frame_len), center=False, return_complex=False)
+
+		ip_real_img = torch.permute(ip_real_img, [0, 3, 2, 1]) #(2, 2(r,i), T, F)
+		tgt_real_img = torch.permute(tgt_real_img, [0, 3, 2, 1]) #(2, 2(r,i), T, F)
+
+		(num_ch, _ri, frms, freq) = ip_real_img.shape
+		ip_feat = torch.reshape(ip_real_img, (num_ch*_ri, frms, freq))
+		tgt_feat = torch.reshape(tgt_real_img, (num_ch*_ri, frms, freq))
+
+
+		# Code for frame_level doa
+		sig_vad = compute_vad(tgt[0,:].cpu().numpy(), self.frame_len, self.frame_shift)
+
+		doa = torch.from_numpy(DOA.T)
+		doa = doa.unsqueeze(dim=1).unsqueeze(dim=1) #reshape required for unfold
+		doa_frm = torch.nn.functional.unfold(doa, self.kernel, padding=(0,0), stride=self.stride)
+		doa_frm = torch.mode(doa_frm, dim=1).values.T  
+		#breakpoint()
+
+		doa_azimuth_degrees = torch.rad2deg(doa_frm[:,2])
+		if "linear" in self.array_type:
+			doa_azimuth_degrees = torch.abs(doa_azimuth_degrees)
+		else:
+			doa_azimuth_degrees = torch.where(doa_azimuth_degrees < 0, 360 + doa_azimuth_degrees, doa_azimuth_degrees)
+			doa_azimuth_degrees = torch.where(doa_azimuth_degrees == 360, 0, doa_azimuth_degrees)
+				 
+		
+		doa_frm = ((doa_azimuth_degrees + 1)*sig_vad) - 1  # -1 in doa_frm implies non-speech frames
+		#print(f'doa_azimuth_degrees: {doa_azimuth_degrees[0]}, doa_frm: {doa_frm[:5]}')
+
+		#print(doa_frm)
+		#one_hot = torch.nn.functional.one_hot(doa_azimuth_degrees.to(torch.long), self.num_doa_classes)
+		#doa_frm = sig_vad.unsqueeze(dim=1)*one_hot
+
+		#float32 for pytorch lightning
+		ip_feat, tgt_feat, doa_frm = ip_feat.to(torch.float32), tgt_feat.to(torch.float32), torch.round(doa_frm).to(torch.long)
+
+		#MISO 
+		if -1 != self.mic_idx:       #condition for specific channels
+			if self.array_type=='linear':
+				tgt_feat = tgt_feat[2*self.mic_idx :2*self.mic_idx  + 2]
+			else:
+				#circular shift inputs trick
+				tgt_feat = tgt_feat[2*self.mic_idx :2*self.mic_idx  + 2]
+				#ip_format 
+				#ip_feat = torch.roll(ip_feat[1:, ], mic_idx)
+				
+		dbg_print(f"Transform inp: {ip_feat.shape} tgt: {tgt_feat.shape},  doa:{doa_frm.shape}")
+		return ip_feat, tgt_feat, doa_frm  
+	
 class MovingSourceDataset(Dataset):
 
 	# Currently supported for > 10 sec utterances
@@ -341,7 +408,7 @@ class MovingSourceDataset(Dataset):
 		
 		DOA = cart2sph(src_trajectory - array_pos)  #[:,1:3], 
 
-		
+		#breakpoint()
 		if self.transforms is not None:
 			for t in self.transforms:
 				mic_signals, dp_signals, doa = t(mic_signals, dp_signals, DOA) #, seq_len, doa, mix_cs
@@ -530,7 +597,7 @@ class MovingSourceDataset(Dataset):
 		return reverb_sig, src_trajectory
 
 if __name__=="__main__":
-	from ZQ_dataset import ZQ_NetworkInput
+	#from ZQ_dataset import ZQ_NetworkInput
 	logs_dir = '../signals/'
 	snr = -5
 	t60 = 0.2
@@ -545,14 +612,14 @@ if __name__=="__main__":
 	diffuse_files_path= '/fs/scratch/PAS0774/Shanmukh/Databases/Timit/train_spk_signals'
 	array_config = {}
 
-	array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size'] = 'linear', 8, 8.0, [6,6,2.4]
+	array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'], array_config['room_size'] = 'circular', 7, 4.25, [6,6,2.4]
 
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 
 	#array_config["real_rirs"], array_config["dist"] = True, 1
 
-	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[ZQ_NetworkInput(320, 160, -1, array_config['array_type'])], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
-										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) # #
+	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[Multi_task_NetworkInput(320, 160, -1, array_config['array_type'])], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
+										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) # #ZQ_NetworkInput(320, 160, -1, array_config['array_type'])
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
 	for _batch_idx, val in enumerate(train_loader):

@@ -62,7 +62,7 @@ class Multi_task_DCCRN_model(pl.LightningModule):
 
 		_est_doa_logits = torch.reshape(est_doa_logits, (batch_szie*num_frms, num_doa_classes))
 		_doa_indices = torch.reshape(doa_indices, (-1,))
-		
+
 		if "MIMO" in self.loss_flag:
 			loss_se, loss_ri, loss_mag, loss_ph_diff, loss_mag_diff = self.loss_se(est_ri_spec, tgt_ri_spec, mix_ri_spec)			
 		else:
@@ -70,8 +70,7 @@ class Multi_task_DCCRN_model(pl.LightningModule):
 			
 		loss_doa = self.loss_doa(_est_doa_logits, _doa_indices)
 		loss = loss_se + 0.1*loss_doa
-			
-
+		
 		self.log(f'{mode_str}_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log(f'{mode_str}_loss_ri', loss_ri, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
 		self.log(f'{mode_str}_loss_mag', loss_mag, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True )
@@ -134,8 +133,9 @@ class Multi_task_DCCRN_model(pl.LightningModule):
 				doa_indices = batch_output['doa_indices'][idx]
 
 				fig = plt.figure()		
-				plt.plot(doa_indices.cpu().numpy())
-				plt.plot(est_doa_idx.cpu().numpy(), '*')
+				plt.plot(doa_indices.cpu().numpy(), label="tgt_doa")
+				plt.plot(est_doa_idx.cpu().numpy(), '*', label="est_doa")
+				plt.legend()
 				tensorboard.add_figure(f'fig__{self.current_epoch}_{batch_idx}', fig)
 				#breakpoint()
 				#for i in range(n_frms):

@@ -24,8 +24,8 @@ class DOA_MISO_fwk(pl.LightningModule):
 		self.array_setup = array_setup
 		self.bidirectional = True
 		
-		self.model_path_0 = '/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_0/epoch=50-step=2295.ckpt'
-		self.model_path_1 = '/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_1/epoch=50-step=2295.ckpt'
+		self.model_path_0 = '/fs/scratch/PAS0774/Shanmukh/ControlledExp/MovingSrc/DCCRN/ref_mic_0/epoch=50-step=2295.ckpt'
+		self.model_path_1 = '/fs/scratch/PAS0774/Shanmukh/ControlledExp/MovingSrc/DCCRN/ref_mic_1/epoch=50-step=2295.ckpt'
 		self.model_0 = DCCRN_model.load_from_checkpoint(self.model_path_0, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
 		self.model_1 = DCCRN_model.load_from_checkpoint(self.model_path_1, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
 

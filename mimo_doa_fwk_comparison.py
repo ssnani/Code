@@ -42,9 +42,10 @@ class DOA_MIMO_fwk(pl.LightningModule):
 		for idx, model_path in enumerate(self.model_paths):
 			_model = DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional,  net_inp=net_inp, net_out=net_out,
 						   train_dataset=None, val_dataset=None, loss_flag=loss_flags[idx]) 
+			#print(_model.model.conv1.bn1.running_mean, _model.model.conv1.bn1.running_var)
 			#_model.cuda()
 			#breakpoint()
-			print('Inside DOA_MIMO_fwk fwk.py', _model.model.fc1.weight.dtype, _model.model.fc1.weight)
+			#print('Inside DOA_MIMO_fwk fwk.py', _model.model.fc1.weight.dtype, _model.model.fc1.weight)
 			self.models.append(_model)
 		
 		#self.models = nn.ModuleList(self.models)
@@ -55,8 +56,11 @@ class DOA_MIMO_fwk(pl.LightningModule):
 		#print(mix_ri_spec)
 		_est_ri_spec = []
 		for _model in self.models:
-			#_model.cuda()
+			#_model.eval()
+			#_model.model.eval()
+			#print(_model.model.conv1.bn1.running_mean, _model.model.conv1.bn1.running_var)
 			est_ri_spec_dict = _model.test_step(input_batch, batch_idx)
+			#print(_model.model.conv1.bn1.running_mean, _model.model.conv1.bn1.running_var)
 			_est_ri_spec.append(est_ri_spec_dict['est_ri_spec'])
 			
 
@@ -159,7 +163,7 @@ def test_doa(args, loss_flags: list):
 	"""
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, size=1,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=1,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -170,7 +174,7 @@ def test_doa(args, loss_flags: list):
 	model_paths = []
 
 	for _loss_flag in loss_flags:
-		ckpt_dir_1 = f'{args.ckpt_dir}/{_loss_flag}/{dataset_dtype}/{dataset_condition}/ref_mic_{ref_mic_idx}' #{noise_simulation}/
+		ckpt_dir_1 = f'{args.ckpt_dir}/{_loss_flag}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}' #
 		for _file in os.listdir(ckpt_dir_1):
 			if _file.endswith(".ckpt") and _file[:5]=="epoch":
 				model_paths.append(os.path.join(ckpt_dir_1, _file))
@@ -198,7 +202,8 @@ def test_doa(args, loss_flags: list):
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
-						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_flags, dbg_doa_log=dbg_doa_log)], #Losscallbacks(),
+						callbacks=[ DOAcallbacks(array_config=array_config,  dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
+			       								doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_flags, dbg_doa_log=dbg_doa_log)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -226,7 +231,8 @@ if __name__=="__main__":
 	print("Testing\n")
 	print(f"{torch.cuda.is_available()}, {torch.cuda.device_count()}\n")
 	
-	loss_list = ["MIMO_RI"]#, "MIMO_RI_MAG", "MIMO_RI_MAG_PD", "MIMO_RI_PD"]
+	#loss_list = ["MIMO_RI", "MIMO_RI_MAG", "MIMO_RI_MAG_PD", "MIMO_RI_PD"]
+	loss_list = ["MIMO_RI_MAG_PD_MAG_AVG", "MIMO_RI_MAG_PD_MAG_SUM"]
 	#loss_list = ["MIMO_RI_MAG_PD", "MIMO_RI"]
 	#if '4mic' in args.ckpt_dir:
 	#	loss_list.append("MIMO_RI_PD_REF")

@@ -22,14 +22,14 @@ class DOA_fwk(pl.LightningModule):
 	def __init__(self, array_setup):
 		super().__init__()
 		self.array_setup = array_setup
-		self.stationary_model_path_0 = '/scratch/bbje/battula12/ControlledExp/StationarySrc/DCCRN/ref_mic_0/epoch=49-step=2250.ckpt' #'/scratch/bbje/battula12/StationarySourceExp/DCCRN/NonCausal_v2/epoch=92-step=7965.ckpt'
-		self.stationary_model_path_1 = '/scratch/bbje/battula12/ControlledExp/StationarySrc/DCCRN/ref_mic_1/epoch=48-step=2205.ckpt'
+		self.stationary_model_path_0 = '/fs/scratch/PAS0774/Shanmukh/ControlledExp/StationarySrc/DCCRN/ref_mic_0/epoch=49-step=2250.ckpt' #'/fs/scratch/PAS0774/Shanmukh/StationarySourceExp/DCCRN/NonCausal_v2/epoch=92-step=7965.ckpt'
+		self.stationary_model_path_1 = '/fs/scratch/PAS0774/Shanmukh/ControlledExp/StationarySrc/DCCRN/ref_mic_1/epoch=48-step=2205.ckpt'
 		self.bidirectional = True
 		self.stationary_model_0 = DCCRN_model.load_from_checkpoint(self.stationary_model_path_0, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
 		self.stationary_model_1 = DCCRN_model.load_from_checkpoint(self.stationary_model_path_1, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
 
-		self.non_stationary_model_path_0 = '/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_0/epoch=50-step=2295.ckpt'
-		self.non_stationary_model_path_1 = '/scratch/bbje/battula12/ControlledExp/MovingSrc/DCCRN/ref_mic_1/epoch=50-step=2295.ckpt'
+		self.non_stationary_model_path_0 = '/fs/scratch/PAS0774/Shanmukh/ControlledExp/MovingSrc/DCCRN/ref_mic_0/epoch=50-step=2295.ckpt'
+		self.non_stationary_model_path_1 = '/fs/scratch/PAS0774/Shanmukh/ControlledExp/MovingSrc/DCCRN/ref_mic_1/epoch=50-step=2295.ckpt'
 		self.non_stationary_model_0 = DCCRN_model.load_from_checkpoint(self.non_stationary_model_path_0, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
 		self.non_stationary_model_1 = DCCRN_model.load_from_checkpoint(self.non_stationary_model_path_1, bidirectional=self.bidirectional, train_dataset=None, val_dataset=None)
 
@@ -109,7 +109,7 @@ if __name__=="__main__":
 		noi_mic_dist = 1.0
 		scenario = "source_moving"
 		
-		scratch_dir='/scratch/bbje/battula12/ControlledExp/Testing/Scenario_Comparision/'
+		scratch_dir='/fs/scratch/PAS0774/Shanmukh/ControlledExp/Testing/Scenario_Comparision/'
 		pp_str = f'{scratch_dir}signals/{scenario}/from_val_dataset_circular_motion_snr_{snr}_t60_{t60}_src_mic_dist_{src_mic_dist}_noi_mic_dist_{noi_mic_dist}/'    #../# from_datasetfile_10sec/v2/'
 
 		import os

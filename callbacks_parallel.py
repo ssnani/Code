@@ -1416,7 +1416,7 @@ class DOAcallbacks_parallel(Callback):
 
 	def _print_doa_num_mic_var(self, batch_idx, num_batches, exp_dict, mix_2mic_frm_Acc, mix_4mic_frm_Acc, mix_8mic_frm_Acc, loss_2mic_info, loss_4mic_info, loss_8mic_info, doa_degrees):
 		#print(f'{"Frm Acc":45}', '2mic', '4mic', '8mic')
-		file_name = f'../Logs/{self.dataset_condition}_{self.noise_simulation}_8cm_{self.log_str}_doa_parallel.csv' #
+		file_name = f'../Logs/{self.dataset_condition}_2m_8cm_{self.log_str}_doa_parallel.csv' #{self.noise_simulation}
 		f = open(file_name,'a')
 		doa_writer = csv.writer(f)
 		mix_str = [f'{batch_idx:04d}', f'{"Unproc":25}', 'mix_nmic_ri_spec',  f'{mix_2mic_frm_Acc:.4f}', f'{mix_4mic_frm_Acc:.4f}', f'{mix_8mic_frm_Acc:.4f}']
@@ -1481,7 +1481,7 @@ class DOAcallbacks_parallel(Callback):
 
 	def _print_metrics_num_mic_var(self, batch_idx, num_batches, exp_dict, mix_metrics_list):
 		#print(f'{"Metrics":34}', '  0  ', '  1  ', '  2  ', '  3  ', '  4  ', '  5  ', '  6  ', '  7  ')
-		file_name = f'../Logs/{self.dataset_condition}_{self.noise_simulation}_8cm_{self.log_str}_metrics_parallel.csv' #_{self.noise_simulation}
+		file_name = f'../Logs/{self.dataset_condition}_2m_8cm_{self.log_str}_metrics_parallel.csv' #_{self.noise_simulation}
 		f = open(file_name,'a')
 		metrics_writer = csv.writer(f)
 		for metric in ['stoi', 'e_stoi', 'pesq_nb', 'snr']:

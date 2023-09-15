@@ -124,7 +124,12 @@ class multi_task_callback(Callback):
 		#print(f"num_correct_doa_frms: {num_correct_doa_frms} num_vad_frms: {num_vad_frms} \n")
 
 		acc = torch.div(num_correct_doa_frms, num_vad_frms) 
-		#print(f"batch_idx: {batch_idx} acc: {acc} est_doa_vad: {est_doa_vad} doa_indices: {doa_indices}\n")
+		
+		low_perf_doa = acc < 0.80
+		indices = low_perf_doa.nonzero()
+		print(f"batch_idx: {batch_idx} acc < 80% indices {indices} acc: {acc[indices]} est_doa_vad: {est_doa_vad[indices]} doa_indices: {doa_indices[indices]}\n")
+
+		print(f"batch_idx: {batch_idx} acc: {acc} est_doa_vad: {est_doa_vad} doa_indices: {doa_indices}\n")
 		#breakpoint()
 		avg_batch_acc = torch.nanmean(acc)
 

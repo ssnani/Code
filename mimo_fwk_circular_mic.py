@@ -172,7 +172,7 @@ def test_doa(args, models_info: list, loss_list):
 	"""
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, size=5,
+	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=10,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -198,13 +198,13 @@ def test_doa(args, models_info: list, loss_list):
 	else:
 		app_str = ''
 
-	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}_loss_functions_comparison_num_mic'
+	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}' #_loss_functions_comparison_num_mic'
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
 						callbacks=[ DOAcallbacks_parallel_circular(array_config=array_config, dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
-				   						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str, dbg_doa_log=True)], #Losscallbacks(),
+				   						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str, dbg_doa_log=False)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -237,18 +237,19 @@ if __name__=="__main__":
 	print(f"{torch.cuda.is_available()}, {torch.cuda.device_count()}\n")
 
 	
-	loss_list = ["MIMO_RI", "MIMO_RI_MAG", "MIMO_RI_MAG_PD", "MIMO_RI_PD", "MIMO_RI_PD_REF"]
+	loss_list = ["MIMO_RI_MAG"] #"MIMO_RI", "MIMO_RI_MAG", "MIMO_RI_MAG_PD", "MIMO_RI_PD", "MIMO_RI_PD_REF"]
 	#loss_list = ["MIMO_RI_MAG_PD", "MIMO_RI"]
 	#if '4mic' in args.ckpt_dir:
 	#	loss_list.append("MIMO_RI_PD_REF")
 	models_info = []
-	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Circular_array_4.25cm_7mic_dp_rir_t60_0']
+	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Circular_array_reconfirm/'] #'/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Circular_array_4.25cm_7mic_dp_rir_t60_0']
 	for ckpt_dir in ckpt_dirs:
 		for _loss_flag in loss_list:
-			if '7mic' in ckpt_dir:
+			if '7mic' in ckpt_dir or 'Circular' in ckpt_dir:
 				net_inp, net_out = (14,14) 		
 				loss_flag_str = f'{_loss_flag}_{loss_wgt_mech}' if ("PD" in _loss_flag) and ("noisy" in dataset_condition) else f'{_loss_flag}'
-		
+
+			
 			if "noisy" in dataset_condition:
 				ckpt_dir_1 = f'{ckpt_dir}/{loss_flag_str}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 			else:

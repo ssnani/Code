@@ -240,7 +240,7 @@ if __name__=="__main__":
 				retry_count += 1
 
 		#breakpoint()
-		scratch_dir='/scratch/bbje/battula12/Controlled_Experimets/'
+		scratch_dir='/fs/scratch/PAS0774/Shanmukh/Controlled_Experimets/'
 		pp_str = f'{scratch_dir}test_configs/{scenario}/snr_{snr}_t60_{t60}/src_mic_dist_{src_mic_dist}_noi_mic_dist_{noi_mic_dist}/'
 
 		os.makedirs(pp_str, exist_ok=True)

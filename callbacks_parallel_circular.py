@@ -661,7 +661,7 @@ class DOAcallbacks_parallel_circular(Callback):
 		else:
 			log_dir = log_dir_task
 
-		_log_dir = f'{log_dir}{self.log_str}_corrected_doa_sig_norm/'
+		_log_dir = f'{log_dir}{self.log_str}_corrected_doa_sig_norm/DOA_MAG_WT/'
 
 		if not os.path.exists(_log_dir):
 			os.makedirs(_log_dir)
@@ -1118,7 +1118,7 @@ class DOAcallbacks_parallel_circular(Callback):
 		
 		if self.dbg_log:
 			torch.save(result_est_dict, 
-						f'{log_dir}doa_{1.0}_{batch_idx}_tol_{self.tol}deg_euclid_{self.euclid_dist}_wgt_mech_{self.wgt_mech}.pt', 
+						f'{log_dir}doa_{self.log_str}_{batch_idx}_tol_{self.tol}deg_euclid_{self.euclid_dist}_wgt_mech_{self.wgt_mech}.pt', 
 				)
 		return result_est_dict
 

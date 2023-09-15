@@ -1302,7 +1302,7 @@ class DOAcallbacks(Callback):
 		dataloader_idx: int,
 		) -> None:
 
-		self._batch_metrics_masking(batch, outputs, batch_idx) #v3
+		self._batch_metrics_v3(batch, outputs, batch_idx) #v3
 		"""
 		pp_str = f'../signals/tr_s_test_{self.dataset_dtype}_{self.dataset_condition}_{app_str}'    # from_datasetfile_10sec/v2/'
 				

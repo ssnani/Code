@@ -119,7 +119,7 @@ class Multi_task_NetworkInput(object):
 				 
 		
 		doa_frm = ((doa_azimuth_degrees + 1)*sig_vad) - 1  # -1 in doa_frm implies non-speech frames
-		#print(f'doa_azimuth_degrees: {doa_azimuth_degrees[0]}, doa_frm: {doa_frm[:5]}')
+		#print(f'doa_azimuth_degrees: {doa_azimuth_degrees}, doa_frm: {doa_frm}')
 
 		#print(doa_frm)
 		#one_hot = torch.nn.functional.one_hot(doa_azimuth_degrees.to(torch.long), self.num_doa_classes)
@@ -127,6 +127,8 @@ class Multi_task_NetworkInput(object):
 
 		#float32 for pytorch lightning
 		ip_feat, tgt_feat, doa_frm = ip_feat.to(torch.float32), tgt_feat.to(torch.float32), torch.round(doa_frm).to(torch.long)
+		# coverting 360 to 0 after round off
+		doa_frm = torch.where(doa_frm == 360, 0, doa_frm)
 
 		#MISO 
 		if -1 != self.mic_idx:       #condition for specific channels
@@ -137,7 +139,8 @@ class Multi_task_NetworkInput(object):
 				tgt_feat = tgt_feat[2*self.mic_idx :2*self.mic_idx  + 2]
 				#ip_format 
 				#ip_feat = torch.roll(ip_feat[1:, ], mic_idx)
-				
+		
+		#print(doa_frm)
 		dbg_print(f"Transform inp: {ip_feat.shape} tgt: {tgt_feat.shape},  doa:{doa_frm.shape}")
 		return ip_feat, tgt_feat, doa_frm  
 	
@@ -602,11 +605,11 @@ if __name__=="__main__":
 	snr = -5
 	t60 = 0.2
 	scenario = 'motion' #'static' #
-	dataset_file = '../test_dataset_file_real_rir_circular_motion.txt'#f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}_noisy_reverb.txt' # 'dataset_file_10sec.txt'
+	dataset_file = f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}_noisy_reverb.txt' #'../test_dataset_file_real_rir_circular_motion.txt'#f'../dataset_file_circular_{scenario}_snr_{snr}_t60_{t60}_noisy_reverb.txt' # 'dataset_file_10sec.txt'
 
 	T60=0.2
 	SNR=-5
-	dataset_dtype="stationary"
+	dataset_dtype="moving"
 	dataset_condition="noisy_reverb"
 	noise_simulation="diffuse"
 	diffuse_files_path= '/fs/scratch/PAS0774/Shanmukh/Databases/Timit/train_spk_signals'

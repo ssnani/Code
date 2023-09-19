@@ -21,74 +21,98 @@ import torchaudio
 import os
 from arg_parser import parser
 
-class DOA_MISO_comparison_fwk(pl.LightningModule):
-	def __init__(self, array_setup, parse_info, loss_flag):
+class DOA_MISO_fwk_circular(pl.LightningModule):
+	
+	def __init__(self, array_setup, model_parse_info: list, loss_flags: list):
 		super().__init__()
 		self.array_setup = array_setup
-		self.bidirectional = True
 		
-		self.get_model_paths_input(parse_info)
+		self.get_model_paths_input(model_parse_info)
+		
+		self.loss_flags = loss_flags
+		
 
-	
 	def get_model_paths_input(self, parse_info: list [list]):
-		# assuming [ [ [net_inp, net_out, model_path_0],[net_inp, net_out, model_path_1] ], ....]
+		# assuming [[net_inp, net_out, ref_mic_idx, model_path, loss_wgt_mech],....]
 		self.bidirectional = True
 	
-		self.miso_models = nn.ModuleList()
+		self.models = nn.ModuleList()
 		for idx, lst_val in enumerate(parse_info):
-			models = nn.ModuleList()
-			for lst_val_ch in lst_val:
-				net_inp, net_out, ref_mic_idx, model_path, loss_wgt_mech = lst_val_ch[0], lst_val_ch[1], lst_val_ch[2], lst_val_ch[3], lst_val_ch[4]
-			
+			for mic_idx, lst in enumerate(lst_val):
+				net_inp, net_out, ref_mic_idx, model_path, loss_wgt_mech = lst[0], lst[1], lst[2], lst[3], lst[4]
+				
 				loss_flag = model_path.split('/')[-4] #4
 				if "MISO" not in loss_flag:
 					loss_flag = model_path.split('/')[-5]  #5
 				
 				_model = DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional, net_inp=net_inp, net_out=net_out,
-						   train_dataset=None, val_dataset=None, loss_flag=loss_flag, wgt_mech=loss_wgt_mech)
+							train_dataset=None, val_dataset=None, loss_flag=loss_flag, wgt_mech=loss_wgt_mech)
 
-				#if 4==net_inp:
-				models.append(_model)
-				#else:
-				#	print(f"Incorrect net_inp: {net_inp}")
 
-			self.miso_models.append(models)
+				self.models.append(_model)
 
-	def miso_forward(self, input_batch, batch_idx, models):
+	def _circular_shift_forward(self, input_batch, model, batch_idx):
 		mix_ri_spec, tgt_ri_spec, doa = input_batch
 
-		num_mics = mix_ri_spec.shape[1]/2 
+		mix_ri_spec_on_cicle =  mix_ri_spec[:,2:,:,:]
+		outputs = []
+		avg_loss, avg_loss_ri, avg_loss_mag = 0, 0, 0
+		for mic_idx in range(1,7):
+			rotated_mix_ri_spec_on_circle = torch.roll(mix_ri_spec_on_cicle, shifts=-(mic_idx-1)*2, dims=1)
+			#breakpoint()
+			rotated_mix_ri_spec = torch.concat((mix_ri_spec[:,:2,:,:], rotated_mix_ri_spec_on_circle), dim=1)
+
+			rotated_input_batch = rotated_mix_ri_spec, tgt_ri_spec[:, 2*mic_idx :2*mic_idx  + 2], doa
+
+			est_ri_spec_dict = model.test_step(rotated_input_batch, batch_idx)
+
+			outputs.append(est_ri_spec_dict["est_ri_spec"])
+
+			#avg_loss
+			avg_loss += est_ri_spec_dict["loss"]
+			avg_loss_ri += est_ri_spec_dict["loss_ri"]
+			avg_loss_mag += est_ri_spec_dict["loss_mag"]
+
+		
+		est_ri_spec = torch.concat(outputs, dim=1)
+
+		return est_ri_spec, avg_loss, avg_loss_ri, avg_loss_mag
+
+
+
+	def forward(self, input_batch, models, batch_idx):
+		mix_ri_spec, tgt_ri_spec, doa = input_batch
 		_est_ri_spec = []
-		#loss_info = []
-		avg_loss_ri, avg_loss_mag = 0, 0
+		loss_info = []
+		num_loss = len(self.loss_flags)
+		num_mics = mix_ri_spec.shape[1]/2
+		for loss_idx in range(len(self.loss_flags)):
+			input_batch_0 = mix_ri_spec, tgt_ri_spec[:,:2], doa
+			#breakpoint()
+			est_ri_spec_dict = models[num_loss*loss_idx].test_step(input_batch_0, batch_idx)	
+			loss_0, loss_ri_0, loss_mag_0 = est_ri_spec_dict["loss"], est_ri_spec_dict["loss_ri"], est_ri_spec_dict["loss_mag"]
 		
-		for ch_idx, model_ch in enumerate(models):
-			input_batch_ch = (mix_ri_spec, tgt_ri_spec[:, ch_idx*2:ch_idx*2 +2,:,:], doa )
+			est_ri_spec_mic_1_6, avg_loss, avg_loss_ri, avg_loss_mag = self._circular_shift_forward(input_batch, models[num_loss*loss_idx+1], batch_idx)
+			
+			est_ri_spec = torch.concat((est_ri_spec_dict["est_ri_spec"], est_ri_spec_mic_1_6), dim=1)
 
-			est_ri_spec_dict= model_ch.test_step(input_batch_ch, batch_idx)
+			avg_loss += loss_0
+			avg_loss_ri += loss_ri_0
+			avg_loss_mag += loss_mag_0
 
-			_est_ri_spec.append(est_ri_spec_dict['est_ri_spec'])
-			loss_ri, loss_mag = est_ri_spec_dict["loss_ri"], est_ri_spec_dict["loss_mag"]
+			_est_ri_spec.append(est_ri_spec)
 
-			avg_loss_ri += loss_ri
-			avg_loss_mag += loss_mag
-			#loss_info.append((loss_ri, loss_mag))
-		
-		avg_loss_ri /= num_mics
-		avg_loss_mag /= num_mics
-		est_ri_spec_ = torch.concat(_est_ri_spec, dim=1)
+			loss_info.append(( avg_loss_ri/num_mics, avg_loss_mag/num_mics)) #avg_loss/num_mics,
+			
+		est_ri_spec_ = torch.concat(_est_ri_spec)
 
-		return est_ri_spec_, (avg_loss_ri, avg_loss_mag)
+		return est_ri_spec_, loss_info
 
+	
 	def test_step(self, test_batch, batch_idx):
-
-		est_ri_spec_0, loss_info_0 = self.miso_forward(test_batch, batch_idx, self.miso_models[0])
-		est_ri_spec_1, loss_info_1 = self.miso_forward(test_batch, batch_idx, self.miso_models[1])
-
-		est_ri_spec = torch.concat([est_ri_spec_0, est_ri_spec_1], dim=0)
-		
-		loss_info = [loss_info_0, loss_info_1]
-		return {"est_ri_spec" : est_ri_spec, 'loss_info': loss_info }
+		mix_ri_spec, tgt_ri_spec, doa = test_batch
+		est_ri_spec, loss_7mic_info = self.forward(test_batch, self.models, batch_idx)
+		return {"est_ri_spec" : est_ri_spec, "loss_info": loss_7mic_info }
 	
 	def training_step(self, test_batch, batch_idx):
 		pass
@@ -113,24 +137,6 @@ class DOA_MISO_comparison_fwk(pl.LightningModule):
 		mix_sig = torch.istft(_mix_ri_spec, 320,160,320,torch.hamming_window(320).type_as(_mix_ri_spec), center=False)
 		return mix_sig
 
-
-def get_acc(est_vad, est_blk_val, tgt_blk_val, tol=5, vad_th=0.6):
-	n_blocks = len(est_vad)
-	non_vad_blks =[]
-	acc=0
-	valid_blk_count = 0
-	for idx in range(0, n_blocks):
-		if est_vad[idx] >=vad_th:
-			if (np.abs(est_blk_val[idx] - np.abs(tgt_blk_val[idx])) <= tol):
-				acc += 1
-			valid_blk_count +=1
-		else:
-			non_vad_blks.append(idx)
-
-	acc /= valid_blk_count
-	
-	#print(f'n_blocks: {n_blocks}, non_vad_blks: {non_vad_blks}')
-	return acc
 
 def test_doa(args, models_info: list, loss_list):
 
@@ -190,15 +196,9 @@ def test_doa(args, models_info: list, loss_list):
 
 	num_mics = array_config["num_mics"]
 
-	"""
-	if "MIMO_RI_PD_REF" == loss_flag:
-		mic_1 = 0
-		mic_pairs = [(mic_1, mic_2) for mic_2 in range(mic_1+1, num_mics)]
-	else:	
-	"""
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=10,
+	test_dataset = MovingSourceDataset(dataset_file, array_config,# size=5,
 									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
@@ -224,14 +224,14 @@ def test_doa(args, models_info: list, loss_list):
 	else:
 		app_str = ''
 
-	app_str = f'{app_str}_linear_miso'
-	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}'
+	app_str = f'{app_str}_circular_miso'
+	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}' #_loss_functions_comparison_num_mic'
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
 	precision = 32
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
 						callbacks=[ DOAcallbacks_parallel(array_config=array_config, dataset_condition = dataset_condition, noise_simulation = noise_simulation, 
-			       						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str, dbg_doa_log=False)], #Losscallbacks(),
+				   						doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech, loss_flags=loss_list, log_str = app_str, dbg_doa_log=False)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -248,17 +248,15 @@ def test_doa(args, models_info: list, loss_list):
 
 	print(msg)
 	
-	model = DOA_MISO_comparison_fwk(array_config['array_setup'], models_info, loss_list)
+	model = DOA_MISO_fwk_circular(array_config['array_setup'], models_info, loss_list)
 	trainer.test(model, dataloaders=test_loader)
 
-
 if __name__=="__main__":
+	#flags
 	args = parser.parse_args()
-	
 	dataset_dtype = args.dataset_dtype
 	dataset_condition = args.dataset_condition
-	ref_mic_idx_list = [0, 1]
-	num_mics = 8
+	ref_mic_idx = args.ref_mic_idx
 	noise_simulation = args.noise_simulation
 	loss_wgt_mech = args.loss_wgt_mech
 
@@ -266,19 +264,17 @@ if __name__=="__main__":
 	print(f"{torch.cuda.is_available()}, {torch.cuda.device_count()}\n")
 
 	
-	loss_list = ["MISO_RI", "MISO_RI_MAG"]
+	loss_list = ["MISO_RI", "MISO_RI_MAG"] 
 
 	models_info = []
-	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Linear_array_MISO' ]  #Linear_array_8cm_dp_rir_t60_0
-	
+	ckpt_dirs = ['/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/Circular_array_MISO/'] 
 	for ckpt_dir in ckpt_dirs:
 		for _loss_flag in loss_list:
+			if '7mic' in ckpt_dir or 'Circular' in ckpt_dir:
+				net_inp, net_out = (14,2) 		
+				loss_flag_str = f'{_loss_flag}_{loss_wgt_mech}' if ("PD" in _loss_flag) and ("noisy" in dataset_condition) else f'{_loss_flag}'
 			models = []
-			for ref_mic_idx in range(num_mics):
-
-				net_inp, net_out = (num_mics*2,2)
-				loss_flag_str = _loss_flag
-
+			for ref_mic_idx in [0,1]:
 				if "noisy" in dataset_condition:
 					ckpt_dir_1 = f'{ckpt_dir}/{loss_flag_str}/{dataset_dtype}/{dataset_condition}/{noise_simulation}/ref_mic_{ref_mic_idx}'
 				else:
@@ -288,11 +284,9 @@ if __name__=="__main__":
 					for _file in os.listdir(ckpt_dir_1):
 						if _file.endswith(".ckpt") and _file[:5]=="epoch":
 							models.append((net_inp, net_out, ref_mic_idx, os.path.join(ckpt_dir_1, _file), loss_wgt_mech))
-				
+							
 			models_info.append(models)
+	
 	#breakpoint()
 	test_doa(args, models_info, loss_list)
 
-
-
-	

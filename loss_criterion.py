@@ -28,7 +28,7 @@ class LossFunction(object):
         self.loss_flag = loss_flag
     def __call__(self, est, lbl):
         batch_size, n_ch, n_frames, n_feats = est.shape
-
+        
         est_mag_1 = torch.sqrt(est[:,0]**2 + est[:,1]**2 + self.eps)
         lbl_mag_1 = torch.sqrt(lbl[:,0]**2 + lbl[:,1]**2 + self.eps)
 

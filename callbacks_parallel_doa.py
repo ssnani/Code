@@ -20,7 +20,7 @@ import pdb
 # Set the PYTHONUNBUFFERED environment variable to 1
 os.environ['PYTHONUNBUFFERED'] = '1'
 
-class DOAcallbacks_parallel_circular(Callback):
+class DOAcallbacks_parallel(Callback):
 	def __init__(self, array_config, dataset_dtype=None, dataset_condition=None, noise_simulation = None, doa_tol = 5, doa_euclid_dist=False, mic_pairs=None, wgt_mech=None, loss_flags=None, log_str = None, dbg_doa_log = False):
 		self.frame_size = 320
 		self.frame_shift = 160    #TODO
@@ -31,6 +31,7 @@ class DOAcallbacks_parallel_circular(Callback):
 		self.local_mic_pos = torch.from_numpy(self.array_setup.mic_pos)
 		self.local_mic_center=torch.from_numpy(np.array([0.0, 0.0, 0.0]))
 		self.array_type = array_config['array_type']
+		
 
 		self.dataset_dtype= dataset_dtype
 		self.dataset_condition = dataset_condition
@@ -108,7 +109,7 @@ class DOAcallbacks_parallel_circular(Callback):
 		mae_only_correct_frms, mae_only_incorrect_frms, mae_overall_only_vad_frms = 0.0,0.0,0.0
 		for idx in range(0, n_blocks):
 			if est_vad[idx] >=vad_th:
-				if is_linear:
+				if "linear" in self.array_type:
 					diff = np.abs(est_blk_val[idx] - np.abs(tgt_blk_val[idx]))
 				else:
 					diff = np.abs(est_blk_val[idx] - tgt_blk_val[idx]) 
@@ -134,7 +135,7 @@ class DOAcallbacks_parallel_circular(Callback):
 
 		acc /= valid_blk_count
 		
-		print(f'n_blocks: {n_blocks}, non_vad_blks: {non_vad_blks}')
+		#print(f'n_blocks: {n_blocks}, non_vad_blks: {non_vad_blks}')
 		return acc, mae_only_correct_frms, mae_only_incorrect_frms, mae_overall_only_vad_frms
 
 	def _batch_metrics(self, batch, outputs, batch_idx):
@@ -655,13 +656,13 @@ class DOAcallbacks_parallel_circular(Callback):
 	
 	def get_log_dir(self):
 		log_base_dir = '/fs/scratch/PAS0774/Shanmukh/ControlledExp/random_seg/'
-		log_dir_task = f'{log_base_dir}/dbg_signals/simu_rirs_dbg_analysis/loss_functions_comparison_circular_array/{self.dataset_condition}/'
+		log_dir_task = f'{log_base_dir}/dbg_signals/simu_rirs_dbg_analysis/circular_array_miso/{self.dataset_condition}/'
 		if "noisy" in self.dataset_condition:
 			log_dir = f'{log_dir_task}{self.noise_simulation}/'
 		else:
 			log_dir = log_dir_task
 
-		_log_dir = f'{log_dir}{self.log_str}_corrected_doa_sig_norm/DOA_MAG_WT/'
+		_log_dir = f'{log_dir}{self.log_str}'
 
 		if not os.path.exists(_log_dir):
 			os.makedirs(_log_dir)
@@ -1004,30 +1005,32 @@ class DOAcallbacks_parallel_circular(Callback):
 			#mask
 			mix_wt = self.get_mask(mix_spec_cmplx, mix_spec_cmplx)
 			tgt_wt = self.get_mask(mix_spec_cmplx, tgt_spec_cmplx)
+			gamma = 1
 		else:
 			mix_wt = torch.abs(mix_spec_cmplx)
 			tgt_wt = torch.abs(tgt_spec_cmplx)
+			gamma = 0.5
 			
 
 		## Computing mix, tgt frame level doa for (8, 4, 2) mics
 		
-		mix_7mic_f_doa, mix_f_vals, mix_7mic_utt_doa, mix_2mic_f_doa, mix_2mic_utt_doa, mix_2mic_f_vals = gcc_phat_all_pairs(mix_spec_cmplx, mix_wt, 16000, self.frame_size, self.local_mic_pos, 
-								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
-		tgt_7mic_f_doa, tgt_f_vals, tgt_7mic_utt_doa, tgt_2mic_f_doa, tgt_2mic_utt_doa, tgt_2mic_f_vals = gcc_phat_all_pairs(tgt_spec_cmplx, tgt_wt, 16000, self.frame_size, self.local_mic_pos, 
-								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs)
+		mix_nmic_f_doa, mix_f_vals, mix_nmic_utt_doa, mix_2mic_f_doa, mix_2mic_utt_doa, mix_2mic_f_vals = gcc_phat_all_pairs(mix_spec_cmplx, mix_wt, 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs, gamma=gamma)
+		tgt_nmic_f_doa, tgt_f_vals, tgt_nmic_utt_doa, tgt_2mic_f_doa, tgt_2mic_utt_doa, tgt_2mic_f_vals = gcc_phat_all_pairs(tgt_spec_cmplx, tgt_wt, 16000, self.frame_size, self.local_mic_pos, 
+								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=self.mic_pairs, gamma=gamma)
 		
 		if "real_rirs" not in self.array_config:
-			ref_f_doa = tgt_7mic_f_doa
+			ref_f_doa = tgt_nmic_f_doa
 			ref_2mic_f_doa = tgt_2mic_f_doa
 		else:
 			ref_f_doa = torch.rad2deg(doa[:,:,-1])[0,:mix_2mic_f_doa.shape[0]]
 			ref_2mic_f_doa = ref_f_doa
 		
-		mix_7mic_frm_Acc, mix_7mic_mae_only_correct_frms, mix_7mic_mae_only_incorrect_frms, mix_7mic_mae_overall_only_vad_frms = self.get_acc(tgt_sig_vad.cpu().numpy(), mix_7mic_f_doa.cpu().numpy(), ref_f_doa.cpu().numpy(), tol=self.tol, vad_th=0.6)
+		mix_nmic_frm_Acc, mix_nmic_mae_only_correct_frms, mix_nmic_mae_only_incorrect_frms, mix_nmic_mae_overall_only_vad_frms = self.get_acc(tgt_sig_vad.cpu().numpy(), mix_nmic_f_doa.cpu().numpy(), ref_f_doa.cpu().numpy(), tol=self.tol, vad_th=0.6)
 		mix_2mic_frm_Acc, mix_2mic_mae_only_correct_frms, mix_2mic_mae_only_incorrect_frms, mix_2mic_mae_overall_only_vad_frms = self.get_acc(tgt_sig_vad.cpu().numpy(), mix_2mic_f_doa.cpu().numpy(), ref_2mic_f_doa.cpu().numpy(), tol=self.tol, vad_th=0.6)
 		
 
-		print('mix_7mic_mae_info', mix_7mic_mae_only_correct_frms, mix_7mic_mae_only_incorrect_frms, mix_7mic_mae_overall_only_vad_frms)
+		print(f'mix_{self.num_mics}mic_mae_info', mix_nmic_mae_only_correct_frms, mix_nmic_mae_only_incorrect_frms, mix_nmic_mae_overall_only_vad_frms)
 		
 		print('mix_2mic_mae_info', mix_2mic_mae_only_correct_frms, mix_2mic_mae_only_incorrect_frms, mix_2mic_mae_overall_only_vad_frms)
 
@@ -1040,18 +1043,18 @@ class DOAcallbacks_parallel_circular(Callback):
 			if doa_degrees<0:
 				doa_degrees = 360+doa_degrees
 
-		mix_7mic_utt_Acc = 1.0 if torch.abs(mix_7mic_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
+		mix_nmic_utt_Acc = 1.0 if torch.abs(mix_nmic_utt_doa-doa_degrees) <= self.tol else 0 #tgt_utt_doa
 		mix_2mic_utt_Acc = 1.0 if torch.abs(mix_2mic_utt_doa-doa_degrees) <= self.tol or torch.abs(mix_2mic_utt_doa-doa_degrees_2mic) <= self.tol else 0 #tgt_utt_doa
 
-		self.log(f"mix_7mic_frm_Acc", mix_7mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_frm_Acc", mix_nmic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log(f"mix_2mic_frm_Acc", mix_2mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
-		self.log(f"mix_7mic_utt_Acc", mix_7mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_utt_Acc", mix_nmic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log(f"mix_2mic_utt_Acc", mix_2mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		
-		self.log(f"mix_7mic_mae_only_correct_frms", mix_7mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-		self.log(f"mix_7mic_mae_only_incorrect_frms", mix_7mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-		self.log(f"mix_7mic_mae_overall_only_vad_frms", mix_7mic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_mae_only_correct_frms", mix_nmic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_mae_only_incorrect_frms", mix_nmic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_mae_overall_only_vad_frms", mix_nmic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
 		self.log(f"mix_2mic_mae_only_correct_frms", mix_2mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log(f"mix_2mic_mae_only_incorrect_frms", mix_2mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
@@ -1111,9 +1114,9 @@ class DOAcallbacks_parallel_circular(Callback):
 			"""
 		num_batches = len(self.loss_flags)
 
-		loss_7mic_info  =  outputs['loss_7mic_info']
+		loss_nmic_info  =  outputs['loss_info']
 		
-		self._print_doa_num_mic_var(batch_idx, num_batches, result_est_dict, mix_2mic_frm_Acc, mix_7mic_frm_Acc, loss_7mic_info, doa_degrees)
+		self._print_doa_num_mic_var(batch_idx, num_batches, result_est_dict, mix_2mic_frm_Acc, mix_nmic_frm_Acc, loss_nmic_info, doa_degrees)
 		self._print_metrics_num_mic_var(batch_idx, num_batches, result_est_dict, mix_metrics_list)
 		
 		if self.dbg_log:
@@ -1257,13 +1260,15 @@ class DOAcallbacks_parallel_circular(Callback):
 		if self.wgt_mech=="MASK":
 		#mask
 			est_wt = self.get_mask_np(mix_spec_cmplx_mics, est_spec_cmplx)
+			gamma = 1
 		else:
 			est_wt = np.abs(est_spec_cmplx)
+			gamma = 0.5
 		
 		#print(f'Before DoA Cmp {loss_flag} {key_num_mic_str}', flush = True)
 			
 		est_f_doa, est_f_vals, est_utt_doa, est_2mic_f_doa, est_2mic_utt_doa, est_2mic_f_vals = np_gcc_phat_all_pairs(est_spec_cmplx, est_wt, 16000, self.frame_size, mic_pos, 
-																self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=mic_pairs)
+																self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist, mic_pairs=mic_pairs, gamma=gamma)
 
 
 				
@@ -1284,17 +1289,18 @@ class DOAcallbacks_parallel_circular(Callback):
 		result_Q.put(est_dict)
 		return 
 
-	def _print_doa_num_mic_var(self, batch_idx, num_batches, exp_dict, mix_2mic_frm_Acc, mix_7mic_frm_Acc, loss_7mic_info, doa_degrees):
+	def _print_doa_num_mic_var(self, batch_idx, num_batches, exp_dict, mix_2mic_frm_Acc, mix_nmic_frm_Acc, loss_nmic_info, doa_degrees):
 		#print(f'{"Frm Acc":45}', '2mic', '4mic', '8mic')
+		exp_log_dir = f'{self.array_type}_mic_miso_csv' if "MISO" in self.loss_flags[0] else f'{self.array_type}_mic_mimo_csv'
 		if "noisy" in self.dataset_condition:
-			file_name = f'../Logs/{self.dataset_condition}_{self.noise_simulation}_4.25cm_{self.log_str}_doa_parallel.csv'
+			file_name = f'../Logs/{exp_log_dir}/{self.dataset_condition}/{self.noise_simulation}/{self.dataset_condition}_{self.noise_simulation}_{self.array_type}_{self.array_config["intermic_dist"]}cm_{self.log_str}_doa_parallel.csv'
 		else:
-			file_name = f'../Logs/{self.dataset_condition}_4.25cm_{self.log_str}_doa_parallel.csv'
+			file_name = f'../Logs/{exp_log_dir}/{self.dataset_condition}/{self.dataset_condition}_{self.array_type}_{self.array_config["intermic_dist"]}cm_{self.log_str}_doa_parallel.csv'
 			
 		f = open(file_name,'a')
 		doa_writer = csv.writer(f)
 
-		mix_str = [f'{batch_idx:04d}', f'{"Unproc":25}', 'mix_nmic_ri_spec',  f'{mix_2mic_frm_Acc:.4f}', f'{mix_7mic_frm_Acc:.4f}']
+		mix_str = [f'{batch_idx:04d}', f'{"Unproc":25}', f'mix_{self.num_mics}mic_ri_spec',  f'{mix_2mic_frm_Acc:.4f}', f'{mix_nmic_frm_Acc:.4f}']
 		doa_writer.writerow(mix_str)
 		for idx in range(num_batches):
 			loss_flag = self.loss_flags[idx]
@@ -1306,7 +1312,12 @@ class DOAcallbacks_parallel_circular(Callback):
 
 				(est_2mic_f_doa, est_2mic_f_vals, est_2mic_utt_doa, est_2mic_frm_Acc, est_2mic_utt_Acc, est_2mic_mae_only_correct_frms, est_2mic_mae_only_incorrect_frms, est_2mic_mae_overall_only_vad_frms) = exp_dict[matched_2mic_mic_str]
 
-				loss_ri, loss_mag, loss_phdiff = loss_7mic_info[idx]
+				if "MIMO" in loss_flag:
+					loss_ri, loss_mag, loss_phdiff = loss_nmic_info[idx]
+				else:
+					loss_ri, loss_mag = loss_nmic_info[idx]
+					loss_phdiff = 0
+
 
 				_str = [f'{batch_idx:04d}', f'{loss_flag:25}', f'{est_2mic_frm_Acc:.4f}', f'{est_frm_Acc:.4f}', f'{est_2mic_utt_Acc:.4f}', f'{est_utt_Acc:.4f}', f'{loss_ri:.4f}', f'{loss_mag:.4f}', f'{loss_phdiff:.4f}', f'{est_2mic_mae_only_correct_frms:.2f}', f'{est_2mic_mae_only_incorrect_frms:.2f}', f'{est_2mic_mae_overall_only_vad_frms:.2f}', f'{est_mae_only_correct_frms:.2f}', f'{est_mae_only_incorrect_frms:.2f}', f'{est_mae_overall_only_vad_frms:.2f}', f'{doa_degrees:.1f}']
 			
@@ -1335,10 +1346,11 @@ class DOAcallbacks_parallel_circular(Callback):
 
 	def _print_metrics_num_mic_var(self, batch_idx, num_batches, exp_dict, mix_metrics_list):
 		#print(f'{"Metrics":34}', '  0  ', '  1  ', '  2  ', '  3  ', '  4  ', '  5  ', '  6  ', '  7  ')
+		exp_log_dir = f'{self.array_type}_mic_miso_csv' if "MISO" in self.loss_flags[0] else f'{self.array_type}_mic_mimo_csv'
 		if "noisy" in self.dataset_condition:
-			file_name = f'../Logs/{self.dataset_condition}_{self.noise_simulation}_4.25cm_{self.log_str}_metrics_parallel.csv' 
+			file_name = f'../Logs/{exp_log_dir}/{self.dataset_condition}/{self.noise_simulation}/{self.dataset_condition}_{self.noise_simulation}_{self.array_type}_{self.array_config["intermic_dist"]}cm_{self.log_str}_metrics_parallel.csv' 
 		else:
-			file_name = f'../Logs/{self.dataset_condition}_4.25cm_{self.log_str}_metrics_parallel.csv' 
+			file_name = f'../Logs/{exp_log_dir}/{self.dataset_condition}/{self.dataset_condition}_{self.array_type}_{self.array_config["intermic_dist"]}cm_{self.log_str}_metrics_parallel.csv' 
 			
 		f = open(file_name,'a')
 		metrics_writer = csv.writer(f)

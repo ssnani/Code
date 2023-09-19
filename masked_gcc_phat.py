@@ -25,7 +25,7 @@ local_mic_pos = torch.concat((local_mic_pos[[mic_pair[0]],:], local_mic_pos[[mic
 """           
 
 #torch implementation
-def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist):
+def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, gamma=1):
 
     (chan, frames, freq) = X.shape
     X_ph = torch.angle(X)
@@ -33,7 +33,7 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     #weightage
     if weighted:
-        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], 1) # 0.3) # 0.5
+        est_mask_pq = torch.pow(est_mask[0,:,1:]*est_mask[1,:,1:], gamma) # 0.3) # 0.5
 
 
     angular_freq = 2*torch.pi*fs*1.0/nfft*torch.arange(1, freq, dtype=torch.float32)
@@ -96,7 +96,7 @@ def gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mi
 
     return doa, vals, utt_doa, all_info_unweighted, all_info #utt_sum, delays
 
-def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs):
+def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs, gamma):
     #print(X.shape)
     num_mics, num_frames, num_freq = X.shape
     #mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
@@ -115,7 +115,7 @@ def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos,
         mic_pair_pos = local_mic_pos[[mic_pair[0], mic_pair[1]],:]
 
         X_pair_doa, X_frm_vals, X_pair_utt_doa, _, _ = gcc_phat_loc_orient(X_pair, est_mask_pair, fs, nfft, mic_pair_pos, 
-															 mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist)
+															 mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, gamma)
         
         if centre_mic_pair == mic_pair:
             X_2mic_doa = X_pair_doa
@@ -131,7 +131,7 @@ def gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos,
 
     return doa_idx, pair_acc_X_frm_vals, utt_doa_idx, X_2mic_doa, X_2mic_utt_doa, X_2mic_frm_vals
 
-def np_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist):
+def np_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, gamma=1):
 
     (chan, frames, freq) = X.shape
     X_ph = np.angle(X)
@@ -139,7 +139,7 @@ def np_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src
 
     #weightage
     if weighted:
-        est_mask_pq = np.power(est_mask[0,:,1:]*est_mask[1,:,1:], 1.0) # 0.3) # 
+        est_mask_pq = np.power(est_mask[0,:,1:]*est_mask[1,:,1:], gamma) # 0.3) # 
 
 
     angular_freq = 2*np.pi*fs*1.0/nfft*np.arange(1, freq, dtype=np.float32)
@@ -201,7 +201,7 @@ def np_gcc_phat_loc_orient(X, est_mask, fs, nfft, local_mic_pos, mic_center, src
 
     return doa, vals, utt_doa, all_info_unweighted, all_info #utt_sum, delays
 
-def np_gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs):
+def np_gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_pos, mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, mic_pairs, gamma):
     #print(X.shape)
     num_mics, num_frames, num_freq = X.shape
     #mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
@@ -220,7 +220,7 @@ def np_gcc_phat_all_pairs(X: "[num_mics, T, F]", est_mask, fs, nfft, local_mic_p
         mic_pair_pos = local_mic_pos[[mic_pair[0], mic_pair[1]],:]
 
         X_pair_doa, X_frm_vals, X_pair_utt_doa, _, _ = np_gcc_phat_loc_orient(X_pair, est_mask_pair, fs, nfft, mic_pair_pos, 
-															 mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist)
+															 mic_center, src_mic_dist, weighted, sig_vad, is_euclidean_dist, gamma)
         
         if centre_mic_pair == mic_pair:
             X_2mic_doa = X_pair_doa

@@ -1300,7 +1300,7 @@ class DOAcallbacks_parallel(Callback):
 		f = open(file_name,'a')
 		doa_writer = csv.writer(f)
 
-		mix_str = [f'{batch_idx:04d}', f'{"Unproc":25}', f'mix_{self.num_mics}mic_ri_spec',  f'{mix_2mic_frm_Acc:.4f}', f'{mix_nmic_frm_Acc:.4f}']
+		mix_str = [f'{batch_idx:04d}', f'mix_{self.num_mics}mic_ri_spec',  f'{mix_2mic_frm_Acc:.4f}', f'{mix_nmic_frm_Acc:.4f}']
 		doa_writer.writerow(mix_str)
 		for idx in range(num_batches):
 			loss_flag = self.loss_flags[idx]

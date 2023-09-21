@@ -40,9 +40,9 @@ class DOA_MISO_comparison_fwk(pl.LightningModule):
 			for lst_val_ch in lst_val:
 				net_inp, net_out, ref_mic_idx, model_path, loss_wgt_mech = lst_val_ch[0], lst_val_ch[1], lst_val_ch[2], lst_val_ch[3], lst_val_ch[4]
 			
-				loss_flag = model_path.split('/')[-4] #4
+				loss_flag = model_path.split('/')[-5] #4
 				if "MISO" not in loss_flag:
-					loss_flag = model_path.split('/')[-5]  #5
+					loss_flag = model_path.split('/')[-6]  #5
 				
 				_model = DCCRN_model.load_from_checkpoint(model_path, bidirectional=self.bidirectional, net_inp=net_inp, net_out=net_out,
 						   train_dataset=None, val_dataset=None, loss_flag=loss_flag, wgt_mech=loss_wgt_mech)

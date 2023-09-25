@@ -260,7 +260,7 @@ def main(args):
 	lr_monitor = LearningRateMonitor(logging_interval='step')
 
 	# training
-	precision=32
+	precision=16
 	trainer = pl.Trainer(accelerator='gpu', devices=args.num_gpu_per_node, num_nodes=args.num_nodes, precision=precision,
 					max_epochs = args.max_n_epochs,
 					callbacks=[checkpoint_callback, model_summary, lr_monitor],# pesq_checkpoint_callback, stoi_checkpoint_callback, DOAcallbacks()], early_stopping, GradNormCallback()

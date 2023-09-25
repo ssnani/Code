@@ -21,6 +21,28 @@ class MSELoss(nn.Module):
         for j, seq_len in enumerate(nframes):
             loss_mask.data[j,0:seq_len,:] += 1.0
         return loss_mask
+
+class MSELoss_vad(nn.Module):
+    def __init__(self):
+        super(MSELoss_vad, self).__init__()
+
+    def forward(self, outputs, labels, nvadframes):
+        loss_mask = self.lossMask(labels, nvadframes)
+        loss = ((outputs - labels) * loss_mask)**2
+        loss = torch.sum(loss)
+        loss_mask = torch.sum(loss_mask)
+        #breakpoint()
+        loss = loss/loss_mask
+        return loss#, loss_mask
+
+    def lossMask(self, labels, doa_frms):
+        loss_mask = torch.zeros_like(labels).requires_grad_(False)
+        batch_size, num_frms = doa_frms.shape
+        for b_idx in range(batch_size):
+            for frm in range(num_frms):
+                if doa_frms[b_idx, frm] != -1:
+                    loss_mask.data[b_idx, frm,:] += 1.0
+        return loss_mask
     
 class LossFunction(object):
     def __init__(self, loss_flag):

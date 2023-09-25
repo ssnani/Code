@@ -415,9 +415,7 @@ class MovingSourceDataset(Dataset):
 		if self.transforms is not None:
 			for t in self.transforms:
 				mic_signals, dp_signals, doa = t(mic_signals, dp_signals, DOA) #, seq_len, doa, mix_cs
-			return mic_signals, dp_signals, doa # seq_len, doa, mix_cs #, noise_reverb                 # noise_reverb is time domain signal: just for listening 
-		
-		
+			return mic_signals, dp_signals, doa #seq_len, doa, mix_cs #, doa # noise_reverb                 # noise_reverb is time domain signal: just for listening 
 
 		return mic_signals, dp_signals, DOA 
 
@@ -601,6 +599,7 @@ class MovingSourceDataset(Dataset):
 
 if __name__=="__main__":
 	#from ZQ_dataset import ZQ_NetworkInput
+	from SRP_DNN_Input import *
 	logs_dir = '../signals/'
 	snr = -5
 	t60 = 0.2
@@ -611,7 +610,7 @@ if __name__=="__main__":
 	SNR=-5
 	dataset_dtype="moving"
 	dataset_condition="noisy_reverb"
-	noise_simulation="diffuse"
+	noise_simulation="point_source"
 	diffuse_files_path= '/fs/scratch/PAS0774/Shanmukh/Databases/Timit/train_spk_signals'
 	array_config = {}
 
@@ -621,10 +620,10 @@ if __name__=="__main__":
 
 	#array_config["real_rirs"], array_config["dist"] = True, 1
 
-	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[Multi_task_NetworkInput(320, 160, -1, array_config['array_type'])], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
-										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) # #ZQ_NetworkInput(320, 160, -1, array_config['array_type'])
+	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[SRPDNN_features(320, 160, -1, array_config['array_type'], array_config['array_setup'] )], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
+										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) # Multi_task_NetworkInput(320, 160, -1, array_config['array_type']) #ZQ_NetworkInput(320, 160, -1, array_config['array_type'])
 	#breakpoint()
-	train_loader = DataLoader(train_dataset, batch_size = 1, num_workers=0)
+	train_loader = DataLoader(train_dataset, batch_size = 2, num_workers=0)
 	for _batch_idx, val in enumerate(train_loader):
 		print(f"mix_sig: {val[0].shape}, {val[0].dtype}, {val[0].device} \
 				tgt_sig: {val[1].shape}, {val[1].dtype}, {val[1].device} \

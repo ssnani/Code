@@ -4,7 +4,7 @@ import math
 from masked_gcc_phat import compute_vad
 
 class SRPDNN_features(object):
-	def __init__(self, frame_len, frame_shift, array_type=None, array_setup=None):
+	def __init__(self, frame_len, frame_shift, array_type=None, array_setup=None, fs=16000):
 		super().__init__()
 
 		self.frame_len = frame_len
@@ -18,7 +18,7 @@ class SRPDNN_features(object):
 		self.freq_range = self.frame_len//2 + 1
 
 		pi = math.pi
-		self.w = torch.from_numpy(np.array([(2*pi/self.frame_len)*k for k in range(1, self.freq_range)])).unsqueeze(dim=0).to(torch.float32)
+		self.w = torch.from_numpy(np.array([(2*pi/self.frame_len)*k*fs for k in range(1, self.freq_range)])).unsqueeze(dim=0).to(torch.float32)
 		#print(f"w_shape: {w.shape}, u_theta: {u_theta.shape}")
 		
 
@@ -31,6 +31,8 @@ class SRPDNN_features(object):
 		mix_ph = torch.angle(mix_cs)
 
 		num_channels, _, _ = mix_cs.shape
+
+		num_pairs = (num_channels*(num_channels-1))//2
 
 		_log_ms_ph, _dp_phasediff = [], []
 
@@ -52,8 +54,10 @@ class SRPDNN_features(object):
 		
 		doa_frm = ((doa_azimuth_degrees + 1)*sig_vad) - 1  # -1 in doa_frm implies non-speech frames
 
+		doa_frm_radians = torch.where(doa_frm!=-1, torch.deg2rad(doa_frm), -1)
+
 		#breakpoint()
-		u_theta = torch.stack( [torch.cos(doa_frm), torch.sin(doa_frm), torch.zeros(doa_frm.shape)], dim=1)
+		u_theta = torch.stack( [torch.cos(doa_frm_radians), torch.sin(doa_frm_radians), torch.zeros(doa_frm.shape)], dim=1)
 		u_theta = u_theta.to(torch.float32)
 
 		mic_pos = self.array_setup.mic_pos
@@ -70,5 +74,4 @@ class SRPDNN_features(object):
 				_dp_phasediff.append(out_lbl.numpy()) #t()
 
 				_log_ms_ph.append(torch.cat((log_ms[[_ch1]], log_ms[[_ch2]], mix_ph[[_ch1]], mix_ph[[_ch2]]), dim=0).numpy())
-				
-		return torch.from_numpy(np.array(_log_ms_ph)).to(dtype=torch.float32), torch.from_numpy(np.array(_dp_phasediff)).to(dtype=torch.float32), doa_frm #, acoustic_scene 
+		return torch.from_numpy(np.array(_log_ms_ph)).to(dtype=torch.float32), torch.from_numpy(np.array(_dp_phasediff)).to(dtype=torch.float32), doa_frm.unsqueeze(dim=0).repeat(num_pairs, 1) #, acoustic_scene 

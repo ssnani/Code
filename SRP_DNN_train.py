@@ -21,6 +21,7 @@ from loss_criterion import MSELoss_vad
 from arg_parser import parser
 from debug import dbg_print
 from callbacks import Losscallbacks, DOAcallbacks, GradNormCallback
+from SRP_DNN_callback import SRPDOAcallbacks
 
 class SRPDNN_Model(pl.LightningModule):
 	def __init__(self, num_freq, bidirectional, train_dataset, val_dataset, batch_size, num_workers):
@@ -266,21 +267,14 @@ def test(args):
 	diffuse_files_path = args.diffuse_files_path
 	array_config['array_setup'] = get_array_set_up_from_config(array_config['array_type'], array_config['num_mics'], array_config['intermic_dist'])
 	
-	net_inp = array_config["num_mics"]*2
-
-	net_inp, net_out = net_inp, net_inp
+	net_inp, net_out = "log_mag_ph_diff", "dp_ph_diff"
 
 	num_mics = array_config["num_mics"]
 
-	
-	#if "MIMO_RI_PD_REF" == loss_flag:
-	#	mic_1 = 0
-	#	mic_pairs = [(mic_1, mic_2) for mic_2 in range(mic_1+1, num_mics)]
-	#else:	
 	mic_pairs = [(mic_1, mic_2) for mic_1 in range(0, num_mics) for mic_2 in range(mic_1+1, num_mics)]
 
-	test_dataset = MovingSourceDataset(dataset_file, array_config, #size=1,
-									transforms=[ NetworkInput(320, 160, ref_mic_idx)],
+	test_dataset = MovingSourceDataset(dataset_file, array_config, size=15,
+									transforms=[ SRPDNN_features(320, 160, array_config['array_type'], array_config['array_setup'])],
 									T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition,
 									noise_simulation=noise_simulation, diffuse_files_path=diffuse_files_path) #
 	test_loader = DataLoader(test_dataset, batch_size = args.batch_size,
@@ -306,9 +300,9 @@ def test(args):
 	exp_name = f'Test_{args.exp_name}_{dataset_dtype}_{app_str}'
 	
 	tb_logger = pl_loggers.TensorBoardLogger(save_dir=ckpt_dir, version=exp_name)
-	precision = 32
+	precision = 16
 	trainer = pl.Trainer(accelerator='gpu', precision=precision, devices=args.num_gpu_per_node, num_nodes=args.num_nodes,
-						callbacks=[ DOAcallbacks(array_config=array_config, doa_tol=doa_tol, doa_euclid_dist=doa_euclid_dist, mic_pairs=mic_pairs, wgt_mech=wgt_mech)], #Losscallbacks(),
+						callbacks=[ SRPDOAcallbacks(320, 160, array_config['array_type'], array_config['array_setup'], doa_tol)], #Losscallbacks(),
 						logger=tb_logger
 						)
 	bidirectional = args.bidirectional
@@ -331,9 +325,9 @@ def test(args):
 	print(msg)
 
 	if os.path.exists(os.path.join(ckpt_dir, model_path)):  #args.
-		model = DCCRN_model.load_from_checkpoint(os.path.join(ckpt_dir, model_path), bidirectional=bidirectional, #args.
-					   							net_inp=net_inp, net_out=net_out,
-												train_dataset=None, val_dataset=None, loss_flag=loss_flag)
+		model = SRPDNN_Model.load_from_checkpoint(os.path.join(ckpt_dir, model_path), num_freq=160, bidirectional=bidirectional, #args.
+												train_dataset=None, val_dataset=None,
+												 batch_size=args.batch_size, num_workers=args.num_workers)
 
 		trainer.test(model, dataloaders=test_loader)
 	else:

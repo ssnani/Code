@@ -332,30 +332,30 @@ class DOAcallbacks(Callback):
 
 		print(batch_idx, mix_8mic_frm_Acc, est_8mic_frm_Acc, mix_2mic_frm_Acc, est_2mic_frm_Acc, mix_8mic_utt_Acc, est_8mic_utt_Acc, mix_2mic_utt_Acc, est_2mic_utt_Acc)
 
-		self.log("mix_8mic_frm_Acc", mix_8mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-		self.log("est_8mic_frm_Acc", est_8mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_frm_Acc", mix_8mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"est_{self.num_mics}mic_frm_Acc", est_8mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_2mic_frm_Acc", mix_2mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_2mic_frm_Acc", est_2mic_frm_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
-		self.log("mix_8mic_utt_Acc", mix_8mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-		self.log("est_8mic_utt_Acc", est_8mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_utt_Acc", mix_8mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"est_{self.num_mics}mic_utt_Acc", est_8mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_2mic_utt_Acc", mix_2mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_2mic_utt_Acc", est_2mic_utt_Acc, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		
 
-		self.log("mix_8mic_mae_overall_only_vad_frms", mix_8mic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_mae_overall_only_vad_frms", mix_8mic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_2mic_mae_overall_only_vad_frms", mix_2mic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-		self.log("est_8mic_mae_overall_only_vad_frms", est_8mic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"est_{self.num_mics}mic_mae_overall_only_vad_frms", est_8mic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_2mic_mae_overall_only_vad_frms", est_2mic_mae_overall_only_vad_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
-		self.log("mix_8mic_mae_only_correct_frms", mix_8mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_mae_only_correct_frms", mix_8mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_2mic_mae_only_correct_frms", mix_2mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-		self.log("est_8mic_mae_only_correct_frms", est_8mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"est_{self.num_mics}mic_mae_only_correct_frms", est_8mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_2mic_mae_only_correct_frms", est_2mic_mae_only_correct_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
-		self.log("mix_8mic_mae_only_incorrect_frms", mix_8mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"mix_{self.num_mics}mic_mae_only_incorrect_frms", mix_8mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("mix_2mic_mae_only_incorrect_frms", mix_2mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-		self.log("est_8mic_mae_only_incorrect_frms", est_8mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+		self.log(f"est_{self.num_mics}mic_mae_only_incorrect_frms", est_8mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		self.log("est_2mic_mae_only_incorrect_frms", est_2mic_mae_only_incorrect_frms, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 		return
 
@@ -429,7 +429,8 @@ class DOAcallbacks(Callback):
 								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist)
 		est_f_doa, est_f_vals, est_utt_doa, est_unwieghted_freq_vals, est_freq_vals = gcc_phat_loc_orient(est_spec_cmplx, torch.abs(est_spec_cmplx), 16000, self.frame_size, self.local_mic_pos, 
 								 										self.local_mic_center, src_mic_dist=1, weighted=True, sig_vad=tgt_sig_vad, is_euclidean_dist=self.euclid_dist)
-
+		
+		#breakpoint()
 		if "real_rirs" not in self.array_config:
 			ref_f_doa = tgt_f_doa
 		else:
@@ -437,6 +438,15 @@ class DOAcallbacks(Callback):
 		
 		mix_frm_Acc,_,_,_ = self.get_acc(tgt_sig_vad, mix_f_doa, ref_f_doa, tol=self.tol, vad_th=0.6)
 		est_frm_Acc,_,_,_ = self.get_acc(tgt_sig_vad, est_f_doa, ref_f_doa, tol=self.tol, vad_th=0.6)
+
+		#cumulative accumulation results
+
+		cum_est_f_vals = torch.cumsum(est_f_vals, dim=1)
+		cum_doa_idx = torch.argmax(cum_est_f_vals,dim=0)
+		cum_est_frm_Acc,_,_,_ = self.get_acc(tgt_sig_vad, cum_doa_idx, ref_f_doa, tol=self.tol, vad_th=0.6)
+
+		print(f"batch_idx; {batch_idx}, cum_fm_acc: {cum_est_frm_Acc}\n")
+
 
 
 		blk_size = 25
@@ -454,6 +464,10 @@ class DOAcallbacks(Callback):
 
 		mix_Acc,_,_,_ = self.get_acc(tgt_blk_vad, mix_blk_vals, ref_blk_vals, tol=self.tol)
 		est_Acc,_,_,_ = self.get_acc(tgt_blk_vad, est_blk_vals, ref_blk_vals, tol=self.tol)
+
+		
+
+
 
 		#Utterance level
 		doa_degrees = torch.abs(torch.rad2deg(doa[:,:,-1])[0,0])
@@ -1302,7 +1316,7 @@ class DOAcallbacks(Callback):
 		dataloader_idx: int,
 		) -> None:
 
-		self._batch_metrics_v3(batch, outputs, batch_idx) #v3
+		self._batch_metrics(batch, outputs, batch_idx) #v3
 		"""
 		pp_str = f'../signals/tr_s_test_{self.dataset_dtype}_{self.dataset_condition}_{app_str}'    # from_datasetfile_10sec/v2/'
 				

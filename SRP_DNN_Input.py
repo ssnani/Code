@@ -66,7 +66,7 @@ class SRPDNN_features(object):
 		for _ch1 in range(num_channels):
 			for _ch2 in range(_ch1+1, num_channels):			
 				dist_mics = torch.from_numpy(mic_pos[_ch1] - mic_pos[_ch2]).unsqueeze(dim=1)
-				dist_mics = dist_mics.to(dtype = torch.float32) # torch.transpose(, 0, 1)
+				dist_mics = torch.abs(dist_mics.to(dtype = torch.float32)) # torch.transpose(, 0, 1)
 				tou = torch.matmul(u_theta, dist_mics) / c
 				#print(f"tou_shape: {tou.shape}, dist_mics: {dist_mics.shape}")
 				out_lbl = torch.cat((torch.cos(torch.matmul(tou, self.w)), torch.sin(torch.matmul(tou, self.w))), dim=1)

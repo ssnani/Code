@@ -35,14 +35,35 @@ class MSELoss_vad(nn.Module):
         loss = loss/loss_mask
         return loss#, loss_mask
 
-    def lossMask(self, labels, doa_frms):
+    def lossMask_v1(self, labels, doa_frms):
         loss_mask = torch.zeros_like(labels).requires_grad_(False)
-        batch_size, num_frms = doa_frms.shape
-        for b_idx in range(batch_size):
+        
+        batch_size, num_pairs, num_frms = doa_frms.shape
+        doa_frms = torch.reshape(doa_frms, (batch_size*num_pairs, num_frms))
+        upd_batch_size, num_frms = doa_frms.shape
+        #breakpoint()
+        for b_idx in range(upd_batch_size):
             for frm in range(num_frms):
                 if doa_frms[b_idx, frm] != -1:
                     loss_mask.data[b_idx, frm,:] += 1.0
         return loss_mask
+
+    def lossMask(self, labels, doa_frms):
+        loss_mask = torch.zeros_like(labels).requires_grad_(False)
+
+        _, num_frms, out_dim = loss_mask.shape
+        
+        batch_size, num_pairs, num_frms = doa_frms.shape
+        doa_frms = torch.reshape(doa_frms, (batch_size*num_pairs, num_frms))
+        upd_batch_size, num_frms = doa_frms.shape
+
+        doa_vad_info = torch.where(doa_frms==-1, 0, 1)
+
+        loss_mask = torch.reshape(torch.repeat_interleave(doa_vad_info, out_dim, dim=1), (upd_batch_size, num_frms, out_dim))
+
+        return loss_mask
+    
+
     
 class LossFunction(object):
     def __init__(self, loss_flag):

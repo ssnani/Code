@@ -414,8 +414,8 @@ class MovingSourceDataset(Dataset):
 		#breakpoint()
 		if self.transforms is not None:
 			for t in self.transforms:
-				mic_signals, dp_signals, doa = t(mic_signals, dp_signals, DOA) #, seq_len, doa, mix_cs
-			return mic_signals, dp_signals, doa #seq_len, doa, mix_cs #, doa # noise_reverb                 # noise_reverb is time domain signal: just for listening 
+				mic_signals, dp_signals, doa  = t(mic_signals, dp_signals, DOA) # seq_len, doa, mix_cs 
+			return mic_signals, dp_signals, doa # seq_len, doa, mix_cs #, doa # noise_reverb                 # noise_reverb is time domain signal: just for listening 
 
 		return mic_signals, dp_signals, DOA 
 
@@ -620,7 +620,7 @@ if __name__=="__main__":
 
 	#array_config["real_rirs"], array_config["dist"] = True, 1
 
-	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[SRPDNN_features(320, 160, -1, array_config['array_type'], array_config['array_setup'] )], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
+	train_dataset = MovingSourceDataset(dataset_file, array_config, size=5, transforms=[SRPDNN_features(320, 160, array_config['array_type'], array_config['array_setup'] )], T60=T60, SNR=SNR, dataset_dtype=dataset_dtype, dataset_condition=dataset_condition, 
 										noise_simulation=noise_simulation, diffuse_files_path= diffuse_files_path) # Multi_task_NetworkInput(320, 160, -1, array_config['array_type']) #ZQ_NetworkInput(320, 160, -1, array_config['array_type'])
 	#breakpoint()
 	train_loader = DataLoader(train_dataset, batch_size = 2, num_workers=0)
